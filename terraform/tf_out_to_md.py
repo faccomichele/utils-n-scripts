@@ -228,7 +228,7 @@ def convert_plan_to_markdown(plan_data: Dict[str, Any]) -> str:
     
     # If no errors, no resource changes, and no output changes, return short message
     if not errors and not resource_changes and not output_changes:
-        md_lines.append("Your infrastructure is already up to date")
+        md_lines.append("Your infrastructure is already up to date.")
         return "\n".join(md_lines)
     
     # Display errors if any
