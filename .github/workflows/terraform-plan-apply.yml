@@ -69,17 +69,37 @@ jobs:
       run: echo "arn=arn:aws:iam::${{ vars[ steps.aws_env_ids.outputs.account ] }}:role/github_${{ steps.repo_details.outputs.repo-name }}_role" | tee -a $GITHUB_OUTPUT
 
     - name: AWS CLI Login
-      uses: aws-login-cli@v1.34.0
+      uses: aws-actions/configure-aws-credentials@d4695650384537945e0b565ee73a714d361bcb04  # v5.5.1
       with:
+        role-to-assume: ${{ steps.aws_role.outputs.arn }}
         aws-region: ${{ inputs.region == 'global' && 'eu-central-1' || inputs.region  }}
-        aws-role: ${{ steps.aws_role.outputs.arn }}
+        role-duration-seconds: '3600'
     
     - name: Get S3 Backend configuration for storing shared state files
-      uses: aws-ssm-get-parameter@v1.34.0
-      with:
-        name: /ea/github/standards/s3_bucket_for_shared_state_files
-        aws-region: ${{ vars.TF_STATE_SSM_REGION || 'eu-central-1' }}
       id: s3_bucket_name_for_shared_state_files
+      shell: bash
+      env:
+        PARAMETER_NAME: '/emailage/terraform/shared_state/s3_bucket_name'
+        REGION: ${{ vars.TF_STATE_SSM_REGION || 'eu-central-1' }}
+        FORMAT: 'text'
+        OUTPUT_FILE: config/${{ inputs.environment }}.s3.tfbackend
+      run: |
+        if [[ -z $REGION ]]; then
+          VALUE=$(aws ssm get-parameter --name $PARAMETER_NAME --query "Parameter.Value" --output $FORMAT --with-decryption)
+        else
+          VALUE=$(aws ssm get-parameter --name $PARAMETER_NAME --query "Parameter.Value" --output $FORMAT --with-decryption --region $REGION)
+        fi
+        echo 'param_value<<PARVAL' | tee -a $GITHUB_OUTPUT
+        echo "$VALUE" | tee -a $GITHUB_OUTPUT
+        echo 'PARVAL' | tee -a $GITHUB_OUTPUT
+
+        # Do not change the indentation on the IF statement below otherwise it will break!  
+        if [[ ! -z $OUTPUT ]]; then
+        echo "Saving output to file: $OUTPUT"
+        cat > $OUTPUT << EOF
+        $VALUE
+        EOF
+        fi
       
     - name: Configure Terraform
       uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # 3.1.2
@@ -221,13 +241,13 @@ jobs:
       shell: bash
       run: cat ${{ inputs.working-directory }}/tf-output-${{ steps.unique_id.outputs.value }}.md >> $GITHUB_STEP_SUMMARY
     
-    - name: Add no changes message to job summary
-      if: always() && steps.tf_changes.outputs.has_changes == 'false'
-      shell: bash
-      run: |
-        echo "## Terraform - No Changes" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "✅ No changes detected. Your infrastructure matches the configuration." >> $GITHUB_STEP_SUMMARY
+    # - name: Add no changes message to job summary
+    #   if: always() && steps.tf_changes.outputs.has_changes == 'false'
+    #   shell: bash
+    #   run: |
+    #     echo "## Terraform - No Changes" >> $GITHUB_STEP_SUMMARY
+    #     echo "" >> $GITHUB_STEP_SUMMARY
+    #     echo "✅ No changes detected. Your infrastructure matches the configuration." >> $GITHUB_STEP_SUMMARY
         
     - name: Prepare Terraform output for comment
       if: always() && github.event_name == 'pull_request'
