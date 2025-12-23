@@ -228,13 +228,13 @@ jobs:
         fi
       working-directory: ${{ inputs.working-directory }}
 
-    - name: Run Terraform Output to MD Report
-      if: always() && steps.tf_changes.outputs.has_changes == 'true'
-      id: tf_report
-      uses: risk-bus-eml/emailage-reusable-workflows/.github/actions/tf-md-report@fix/faccmi01-tf-report
-      with:
-        unique-id: ${{ steps.unique_id.outputs.value }}
-        working-directory: ${{ inputs.working-directory }}
+    # - name: Run Terraform Output to MD Report
+    #   if: always() && steps.tf_changes.outputs.has_changes == 'true'
+    #   id: tf_report
+    #   uses: risk-bus-eml/emailage-reusable-workflows/.github/actions/tf-md-report@fix/faccmi01-tf-report
+    #   with:
+    #     unique-id: ${{ steps.unique_id.outputs.value }}
+    #     working-directory: ${{ inputs.working-directory }}
     
     - name: Add report to job summary
       if: always() && steps.tf_report.outcome == 'success' && steps.tf_changes.outputs.has_changes == 'true'
