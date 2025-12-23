@@ -1,0 +1,46 @@
+name: Terraform - Terraform Plan to MD report (reusable custom action)
+description: 'Terraform - Terraform Plan to MD report (reusable custom action)'
+
+inputs:
+  unique-id:
+    description: 'The unique identifier to use for the report artifact'
+    required: true
+  working-directory: 
+    description: 'The directory to be used to run this script from'
+    default: '.'
+  export-output:
+    description: 'Whether to export the Terraform plan output as a JSON file, for troubleshooting purposes'
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+  - name: Export terraform plan to JSON
+    shell: bash
+    env:
+      OUTPUT_JSON: tf-output.json
+      ERROR_JSON: tf-error-temp.json
+      FINAL_JSON: tf-output-${{ inputs.unique-id }}.json
+    run: |
+      if [ -f "tfplan-${{ inputs.unique-id }}" ]; then
+        terraform show -json tfplan-${{ inputs.unique-id }} > "$FINAL_JSON.tmp"
+        cat "$OUTPUT_JSON" | grep '"@level":"error"' > "$ERROR_JSON" || true
+        jq --compact-output --slurpfile errors "$ERROR_JSON" '.errors = $errors' "$FINAL_JSON.tmp" > "$FINAL_JSON"
+      else
+        cp "$OUTPUT_JSON" "$FINAL_JSON"
+      fi
+    working-directory: ${{ inputs.working-directory }}
+
+  - name: Upload for troubleshooting - TF JSON Outputs
+    uses: actions/upload-artifact@v6
+    if: inputs.export-output == 'true'
+    with:
+      name: tf-outputs
+      path: ${{ inputs.working-directory }}/*.json
+    
+  - name: Resolve target file references
+    uses: risk-bus-eml/emailage-reusable-workflows/.github/actions/run-python-script@v1.34.0
+    with:
+      script: .devops-scripts/Terraform/tf_plan_to_md.py
+      arguments: ${{ inputs.working-directory }}/tf-output-${{ inputs.unique-id }}.json ${{ inputs.working-directory }}/tf-output-${{ inputs.unique-id }}.md
+      existing-script: 'true'

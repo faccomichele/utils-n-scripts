@@ -1,0 +1,379 @@
+name: Run Terraform on AWS (reusable workflow)
+
+on:
+  workflow_call:
+    inputs:
+      repo-name:
+        description: 'The name of the current repository'
+        type: string
+        required: true
+      repo-url:
+        description: 'The url of the current repository'
+        type: string
+        required: true
+      environment:
+        description: 'The name of the target environment, i.e.: "dev"'
+        type: string
+        required: true
+      region:
+        description: 'The region available for the environment in AWS format embedded as a string, if applicable, i.e.: \"us-west-2\"'
+        type: string
+        default: 'global'
+      just-plan:
+        description: 'To review the changes only without applying any change, just run "plan" instead of "apply"'
+        type: boolean
+        default: false
+      working-directory:
+        description: 'The location containing the terraform related files'
+        type: string
+        default: "./ops/terraform"
+      repo-tmpl:
+        description: 'The template of the repository for resource tags'
+        type: string
+        default: 'main.tf'
+      python-version:
+        description: 'The version of Python to use for util scripts'
+        type: string
+        default: '3.13'
+      
+permissions:
+  id-token: write
+  contents: write
+  pull-requests: write
+
+env:
+  ENVNAME: ${{ inputs.environment }}
+
+jobs:
+  terraform_plan_apply:
+    name: Run Terraform (${{ inputs.environment }}_${{ inputs.region }}) - (${{ inputs.working-directory }})
+    runs-on: ${{ vars.RUNNERS }}
+    if: ${{ inputs.working-directory != '[]' }}
+    steps:
+    - name: Get source code locally from this repo
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # 4.2.2
+
+    - name: Checkout devops scripts (utils)
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # 4.2.2
+      with:
+        repository: risk-bus-eml/emailage-devops-scripts
+        ref: main              # You can change this to a specific tag/branch for testing
+        path: .devops-scripts
+        ssh-key: ${{ secrets.DEVOPS_SCRIPTS_REPO_KEY }}
+
+    - name: Setup Python
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # 5.6.0
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Set working directory # step required for emailage-s3-terraform only
+      shell: bash
+      run: |
+        if [[ -d "${{ inputs.working-directory }}/${{ inputs.region }}" ]]; then
+          echo "name=${{ inputs.working-directory }}/${{ inputs.region }}" | tee -a $GITHUB_OUTPUT
+        else
+          echo "name=${{ inputs.working-directory }}" | tee -a $GITHUB_OUTPUT
+        fi
+      id: working_dir
+
+    - name: Define the name of the variables to be retrieved based on the target environment
+      shell: bash
+      run: |
+        echo "role=${ENVNAME^^}_AWS_GITHUB_ROLE" | tee -a $GITHUB_OUTPUT
+        echo "account=${ENVNAME^^}_AWS_ID" | tee -a $GITHUB_OUTPUT
+      id: aws_ids
+
+    - name: Retrieve the AWS IAM Role to be used
+      id: aws_role
+      shell: bash
+      run: |
+        ROLE_FROM_VARS="${{ vars[ steps.aws_ids.outputs.role ] }}"
+        if [ -n "$ROLE_FROM_VARS" ]; then
+          echo "arn=$ROLE_FROM_VARS" | tee -a $GITHUB_OUTPUT
+        else
+          echo "arn=arn:aws:iam::${{ vars[ steps.aws_ids.outputs.account ] }}:role/github_${{ inputs.repo-name }}_role" | tee -a $GITHUB_OUTPUT
+        fi
+
+    - name: Set the Terraform State File region
+      shell: bash
+      run: |
+        case $ENVNAME in
+          prd | prod)
+            TFREGION="us-east-1"
+            ;;
+          dev | ds | sb | dcs | sbx)
+            TFREGION="us-west-2"
+            ;;
+          *)
+            TFREGION="unknown"
+            ;;
+        esac
+        echo "name=$(echo $TFREGION)" | tee -a $GITHUB_OUTPUT
+      id: tf_region
+
+    - name: AWS CLI Login
+      uses: risk-bus-eml/emailage-reusable-workflows/.github/actions/aws-login-cli@v1.34.0
+      with:
+        aws-region: ${{ inputs.region == 'global' && steps.tf_region.outputs.name || inputs.region  }}
+        aws-role: ${{ steps.aws_role.outputs.arn }}
+    
+    - name: Get S3 Bucket name to store shared state files
+      uses: risk-bus-eml/emailage-reusable-workflows/.github/actions/aws-ssm-get-parameter@v1.34.0
+      with:
+        name: /ea/github/standards/s3_bucket_for_shared_state_files
+        aws-region: ${{ steps.tf_region.outputs.name  }}
+      id: s3_bucket_name_for_shared_state_files
+
+    - name: Set GitHub Org Integration Key
+      continue-on-error: true
+      uses: risk-bus-eml/emailage-reusable-workflows/.github/actions/github-set-ssh-key@v1.34.0
+      with:
+        ssh-private-key: /ea/infra/secrets-parameters/keys/integration-gha_tf
+        ssh-hostname: github.com
+      if: vars.RUNNERS == 'ubuntu-latest'
+      
+    - name: Configure Terraform
+      uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # 3.1.2
+      with:
+        terraform_version: '1.13.0'
+        terraform_wrapper: false
+
+    - name: Download lambda zip file.
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # 4.3.0
+      with:
+        merge-multiple: true
+        path: ${{ steps.working_dir.outputs.name }}
+        pattern: lambda-${{ github.sha }}.zip
+
+    - name: S3 Terraform Backend
+      shell: bash
+      env:
+        CLUSTERNAME: "${{ vars.EKS_CLUSTER }}"
+      run: |
+        if [[ ! -f config/${{ inputs.environment }}.s3.tfbackend ]]; then
+          mkdir -p config
+          echo "bucket = \"${{ steps.s3_bucket_name_for_shared_state_files.outputs.param_value }}\"" | tee config/${{ inputs.environment }}.s3.tfbackend
+          echo "region = \"${{ steps.tf_region.outputs.name }}\"" | tee -a config/${{ inputs.environment }}.s3.tfbackend
+          if [[ "$CLUSTERNAME" == "" ]]; then
+            echo "key = \"${{ inputs.repo-name }}/terraform.tfstate\"" | tee -a config/${{ inputs.environment }}.s3.tfbackend
+          else
+            echo "key = \"$CLUSTERNAME/${{ inputs.repo-name }}/terraform.tfstate\"" | tee -a config/${{ inputs.environment }}.s3.tfbackend
+          fi
+        fi
+      working-directory: ${{ steps.working_dir.outputs.name }}
+
+    - name: Init Terraform
+      shell: bash
+      run: >-
+        terraform init -backend-config=config/${{ inputs.environment }}.s3.tfbackend
+      working-directory: ${{ steps.working_dir.outputs.name }}
+
+    - name: Set Terraform Workspace Name
+      shell: bash
+      run: |
+        if [[ "${{ inputs.region }}" == "global" ]]; then
+          echo "name=${{ inputs.environment }}" | tee -a $GITHUB_OUTPUT
+        else
+          echo "name=${{ inputs.environment }}_${{ inputs.region }}" | tee -a $GITHUB_OUTPUT
+        fi
+      id: workspace
+
+    - name: Set Terraform Workspace
+      shell: bash
+      run: >-
+        terraform workspace select -or-create ${{ steps.workspace.outputs.name }}
+      working-directory: ${{ steps.working_dir.outputs.name }}
+
+    - name: Set Tags Variable
+      shell: bash
+      run: |
+        TAGS=$(echo """{
+          \"eml:repo_name\": \"${{ inputs.repo-name }}\",
+          \"lnrs:repo\": \"${{ inputs.repo-url }}\",
+          \"lnrs:owner_email\": \"${{ vars.OWNER_EMAIL }}\",
+          \"eml:repo_path\": \"${{ steps.working_dir.outputs.name }}\",
+          \"eml:repo_tmpl\": \"${{ inputs.repo-tmpl }}\"
+        }""" | jq -c)
+        if [[ "${{ vars.EKS_CLUSTER }}" != "" ]]; then
+          TAGS=$(echo $TAGS "{\"eml:eks_cluster\": \"${{ vars.EKS_CLUSTER }}\"}" | jq -sc '.[0] * .[1]')
+        fi
+        echo "value=tags=$TAGS" | tee -a $GITHUB_OUTPUT
+      id: tags_var
+
+    - name: Set Terraform Output unique id
+      shell: bash
+      run: |
+        echo "value=${{ inputs.environment }}-${{ inputs.region }}-${{ github.sha }}-${{ github.run_number }}" | tee -a $GITHUB_OUTPUT
+      id: unique_id
+
+    - name: Set Terraform Options
+      shell: bash
+      run: |
+        if [[ "${{ inputs.just-plan }}" == "true" ]]; then
+          echo "action=plan -out=tfplan-${{ steps.unique_id.outputs.value }}" | tee -a $GITHUB_OUTPUT
+        else
+          echo "action=apply -auto-approve" | tee -a $GITHUB_OUTPUT
+        fi
+        BUILDSHA=''
+        if [[ -f lambda-${{github.sha}}.zip ]]; then
+          BUILDSHA='-var=build_sha=${{ github.sha }}'
+        fi
+        echo "build-sha=$BUILDSHA" | tee -a $GITHUB_OUTPUT
+        CONFIGFILE=''
+        if [[ -f config/${{ steps.workspace.outputs.name }}.tfvars ]]; then
+          CONFIGFILE='-var-file=config/${{ steps.workspace.outputs.name }}.tfvars'
+        fi
+        echo "config-file=$CONFIGFILE" | tee -a $GITHUB_OUTPUT
+      working-directory: ${{ steps.working_dir.outputs.name }}
+      id: options
+
+    - name: Run Terraform ${{ steps.options.outputs.action }}
+      id: tf_run
+      shell: bash
+      env:
+        GRAFANA_AUTH: ${{ secrets.GRAFANA_AUTH }}
+        ACTION: ${{ steps.options.outputs.action }}
+        CONFIG_FILE: ${{ steps.options.outputs.config-file }}
+        TAGS_VAR: ${{ steps.tags_var.outputs.value }}
+        BUILD_SHA: ${{ steps.options.outputs.build-sha }}
+        TARGET: ${{ steps.options.outputs.target }}
+      run: |
+        terraform $ACTION -json -no-color \
+        ${CONFIG_FILE:+$CONFIG_FILE} \
+        -var="$TAGS_VAR" \
+        ${BUILD_SHA:+$BUILD_SHA} \
+        ${TARGET:+$TARGET} 2>&1 | tee tf-output.json
+      working-directory: ${{ steps.working_dir.outputs.name }}
+
+    - name: Detect Terraform Changes
+      id: tf_changes
+      if: always()
+      shell: bash
+      run: |
+        if [[ "${{ inputs.just-plan }}" == "true" ]]; then
+          # For 'plan', find the change_summary line in the JSON stream and check it.
+          if grep '"type":"change_summary"' tf-output.json | jq '(.changes.add == 0 and .changes.change == 0 and .changes.remove == 0)' | grep -q 'true'; then
+            echo "has_changes=false" | tee -a $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" | tee -a $GITHUB_OUTPUT
+          fi
+        else
+          # For 'apply', find the 'apply' summary line in the JSON stream and check it.
+          if grep '"type":"change_summary"' tf-output.json | grep '"operation":"apply"' | jq '(.changes.add == 0 and .changes.change == 0 and .changes.remove == 0)' | grep -q 'true'; then
+            echo "has_changes=false" | tee -a $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" | tee -a $GITHUB_OUTPUT
+          fi
+        fi
+      working-directory: ${{ steps.working_dir.outputs.name }}
+
+    - name: Run Terraform Output to MD Report
+      if: always() && steps.tf_changes.outputs.has_changes == 'true'
+      id: tf_report
+      uses: risk-bus-eml/emailage-reusable-workflows/.github/actions/tf-md-report@fix/faccmi01-tf-report
+      with:
+        unique-id: ${{ steps.unique_id.outputs.value }}
+        working-directory: ${{ steps.working_dir.outputs.name }}
+    
+    - name: Add report to job summary
+      if: always() && steps.tf_report.outcome == 'success' && steps.tf_changes.outputs.has_changes == 'true'
+      shell: bash
+      run: cat ${{ steps.working_dir.outputs.name }}/tf-output-${{ steps.unique_id.outputs.value }}.md >> $GITHUB_STEP_SUMMARY
+    
+    - name: Add no changes message to job summary
+      if: always() && steps.tf_changes.outputs.has_changes == 'false'
+      shell: bash
+      run: |
+        echo "## Terraform - No Changes" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "✅ No changes detected. Your infrastructure matches the configuration." >> $GITHUB_STEP_SUMMARY
+        
+    - name: Prepare Terraform output for comment
+      if: always() && github.event_name == 'pull_request'
+      id: tf_comment_prep
+      shell: bash
+      run: |
+        COMMENT_BODY=""
+        if [[ "${{ steps.tf_changes.outputs.has_changes }}" == "false" ]]; then
+          COMMENT_BODY="✅ **No Changes** - Your infrastructure matches the configuration."
+        else
+          MD_FILE="${{ steps.working_dir.outputs.name }}/tf-output-${{ steps.unique_id.outputs.value }}.md"
+          if [[ -f "$MD_FILE" ]]; then
+            # Check for errors
+            ERRORS=$(grep -E '^### ❌ Error in' "$MD_FILE" || true)
+            if [[ -n "$ERRORS" ]]; then
+              COMMENT_BODY+="### 🚨 Terraform Errors Detected"$'\n\n'
+              COMMENT_BODY+=$(echo "$ERRORS" | sed 's/### ❌ Error in/❌/g')
+              COMMENT_BODY+=$'\n\n'
+            fi
+
+            # Get summary
+            SUMMARY=$(awk '/## Summary/{flag=1;next}/## Detailed Changes/{flag=0}flag' "$MD_FILE")
+            if [[ -n "$SUMMARY" ]]; then
+              COMMENT_BODY+="### Plan Summary"$'\n'
+              COMMENT_BODY+="$SUMMARY"
+            fi
+          else
+            COMMENT_BODY="Could not find the Terraform report file."
+          fi
+        fi
+
+        # Add link to job summary
+        JOB_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        COMMENT_BODY+=$'\n\n'
+        COMMENT_BODY+="[View Full Report in Job Summary](${JOB_URL})"
+
+        echo "comment_body<<EOF" >> "$GITHUB_OUTPUT"
+        printf '%s\n' "$COMMENT_BODY" >> "$GITHUB_OUTPUT"
+        echo "EOF" >> "$GITHUB_OUTPUT"
+      
+    - name: Comment Terraform Output on PR
+      if: always() && steps.tf_comment_prep.outcome == 'success' && github.event_name == 'pull_request'
+      uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v6
+      env:
+        COMMENT_BODY: ${{ steps.tf_comment_prep.outputs.comment_body }}
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const issue_number = context.issue.number;
+          if (!issue_number) {
+            console.log('Could not determine PR number.');
+            return;
+          }
+
+          const comment_title = `### Terraform Plan for \`${{ inputs.working-directory }}\` in \`${{ env.ENVNAME }}_${{ inputs.region }}\``;
+          const comment_body = `${comment_title}
+
+          ${process.env.COMMENT_BODY}`
+
+          const since_date = new Date();
+          since_date.setDate(since_date.getDate() - 3);
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: issue_number,
+            since: since_date.toISOString(),
+            sort: 'updated',
+            direction: 'desc'
+          });
+
+          const bot_comment = comments.find(comment => {
+            return comment.user.login === 'github-actions[bot]' && comment.body.startsWith(comment_title)
+          });
+
+          if (bot_comment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: bot_comment.id,
+              body: comment_body
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue_number,
+              body: comment_body
+            });
+          }
