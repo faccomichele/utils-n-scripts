@@ -2,8 +2,9 @@
 """
 Terraform Plan JSON to Markdown Converter
 
-Reads tf-out.json and converts it to a human-readable Markdown format (tf-out.md)
-that highlights changes, additions, and deletions.
+Reads tf-logs.json (streaming) and/or tf-show.json (show output) from the current
+directory and converts to a human-readable Markdown format (tf-report.md) that
+highlights changes, additions, and deletions.
 """
 
 import json
@@ -218,8 +219,19 @@ def convert_plan_to_markdown(plan_data: Dict[str, Any]) -> str:
     md_lines.append("# Terraform Summary")
     md_lines.append("")
 
-    # Display errors if any
+    # Check for errors first
     errors = plan_data.get("errors", [])
+    
+    # Check if there are any resource changes
+    resource_changes = plan_data.get("resource_changes", [])
+    output_changes = plan_data.get("output_changes", {})
+    
+    # If no errors, no resource changes, and no output changes, return short message
+    if not errors and not resource_changes and not output_changes:
+        md_lines.append("Your infrastructure is already up to date.")
+        return "\n".join(md_lines)
+    
+    # Display errors if any
     if errors:
         md_lines.append("## 🚨 Terraform Errors")
         md_lines.append("")
@@ -256,9 +268,6 @@ def convert_plan_to_markdown(plan_data: Dict[str, Any]) -> str:
     if "terraform_version" in plan_data:
         md_lines.append(f"**Terraform Version**: `{plan_data['terraform_version']}`")
         md_lines.append("")
-    
-    # Get resource changes
-    resource_changes = plan_data.get("resource_changes", [])
     
     if not resource_changes:
         md_lines.append("No resource changes detected.")
@@ -572,8 +581,13 @@ def has_non_tag_changes(change_data: Dict[str, Any]) -> bool:
     return True  # Will be refined when we have access to change details
 
 
-def parse_terraform_json_lines(file_path: Path) -> Dict[str, Any]:
-    """Parse Terraform JSON Lines output and extract the plan data."""
+def parse_terraform_json_lines(file_path: Path, errors_only: bool = False) -> Dict[str, Any]:
+    """Parse Terraform JSON Lines output and extract the plan data.
+    
+    Args:
+        file_path: Path to the JSON lines file
+        errors_only: If True, only extract errors from the file
+    """
     plan_data = {
         "terraform_version": None,
         "resource_changes": [],
@@ -599,6 +613,10 @@ def parse_terraform_json_lines(file_path: Path) -> Dict[str, Any]:
                 # Extract errors
                 if event.get("@level") == "error" and event_type == "diagnostic":
                     plan_data["errors"].append(event)
+                
+                # If errors_only mode, skip processing other events
+                if errors_only:
+                    continue
 
                 # Extract Terraform version from version event
                 if event_type == "version":
@@ -657,8 +675,9 @@ def parse_terraform_json_lines(file_path: Path) -> Dict[str, Any]:
             except json.JSONDecodeError:
                 continue  # Skip malformed lines
     
-    # Convert dict to list
-    plan_data["resource_changes"] = list(planned_changes.values())
+    # Convert dict to list (only if not errors_only mode)
+    if not errors_only:
+        plan_data["resource_changes"] = list(planned_changes.values())
     
     return plan_data
 
@@ -711,96 +730,41 @@ def parse_terraform_show_json(file_path: Path) -> Dict[str, Any]:
     return data
 
 
-def detect_json_format(file_path: Path) -> str:
-    """Detect if the JSON file is streaming format or show format."""
-    with open(file_path, 'r') as f:
-        first_line = f.readline().strip()
-        
-    try:
-        obj = json.loads(first_line)
-        # If it has @level and type fields, it's streaming format
-        if "@level" in obj or "type" in obj:
-            return "streaming"
-        # If it has terraform_version or resource_changes at top level, it's show format
-        elif "terraform_version" in obj or "resource_changes" in obj:
-            return "show"
-    except json.JSONDecodeError:
-        pass
-    
-    return "unknown"
-
-
-def validate_file_path(file_path: Path, must_exist: bool = False) -> Path:
-    """
-    Validate and sanitize file path to prevent path traversal attacks.
-    
-    Args:
-        file_path: The path to validate
-        must_exist: Whether the file must already exist
-    
-    Returns:
-        Resolved absolute path
-        
-    Raises:
-        ValueError: If path is invalid or contains traversal sequences
-    """
-    # 1. Disallow path traversal components explicitly
-    if ".." in str(file_path):
-        raise ValueError("Path traversal ('..') is not allowed.")
-
-    # 2. Enforce .json extension if required
-    if file_path.suffix != ".md" and file_path.suffix != ".json":
-        raise ValueError("File path must end with .json or .md")
-
-    try:
-        # 3. Resolve to absolute path and normalize
-        resolved_path = file_path.resolve(strict=False)
-        
-        # For input files, ensure they exist and are readable
-        if must_exist:
-            if not resolved_path.exists():
-                raise ValueError(f"File does not exist: {file_path}")
-            if not resolved_path.is_file():
-                raise ValueError(f"Path is not a file: {file_path}")
-        
-        # Ensure it's a valid file path (not a directory for output)
-        if not must_exist and resolved_path.exists() and resolved_path.is_dir():
-            raise ValueError(f"Path is a directory, not a file: {file_path}")
-        
-        return resolved_path
-        
-    except (OSError, RuntimeError) as e:
-        raise ValueError(f"Invalid file path: {file_path} - {e}")
-
-
 def main():
     """Main function to read JSON and write Markdown."""
-    if len(sys.argv) < 3:
-        print("Usage: tf_out_to_md.py <input_file> <output_file>")
-        sys.exit(1)
-
-    try:
-        # Validate input file path
-        input_file = validate_file_path(Path(sys.argv[1]), must_exist=True)
-        # Validate output file path
-        output_file = validate_file_path(Path(sys.argv[2]), must_exist=False)
-    except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+    # Define static file names in the current directory
+    tf_logs_file = Path("tf-logs.json")
+    tf_show_file = Path("tf-show.json")
+    output_file = Path("tf-report.md")
     
     try:
-        # Detect format
-        print(f"Reading {input_file}...")
-        json_format = detect_json_format(input_file)
+        plan_data = None
         
-        if json_format == "show":
+        # Check if tf-show.json exists
+        if tf_show_file.exists():
+            print(f"Reading {tf_show_file}...")
             print("Detected: terraform show -json format")
-            plan_data = parse_terraform_show_json(input_file)
-        else:
+            plan_data = parse_terraform_show_json(tf_show_file)
+            
+            # Also parse errors from tf-logs.json if it exists
+            if tf_logs_file.exists():
+                print(f"Reading errors from {tf_logs_file}...")
+                logs_data = parse_terraform_json_lines(tf_logs_file, errors_only=True)
+                # Merge errors from logs into the plan_data
+                if logs_data.get("errors"):
+                    plan_data.setdefault("errors", []).extend(logs_data["errors"])
+        
+        elif tf_logs_file.exists():
+            # Fall back to tf-logs.json if tf-show.json doesn't exist
+            print(f"Reading {tf_logs_file}...")
             print("Detected: terraform plan -json format (streaming)")
             print("⚠️  Note: Streaming format cannot distinguish tag-only updates.")
-            print("   For better analysis, use: terraform plan -out=tfplan && terraform show -json tfplan > tf-out.json")
-            plan_data = parse_terraform_json_lines(input_file)
+            print("   For better analysis, use: terraform plan -out=tfplan && terraform show -json tfplan > tf-show.json")
+            plan_data = parse_terraform_json_lines(tf_logs_file, errors_only=False)
+        
+        else:
+            print(f"Error: Neither {tf_show_file} nor {tf_logs_file} found in current directory.")
+            sys.exit(1)
         
         # Convert to Markdown
         print("Converting to Markdown...")
