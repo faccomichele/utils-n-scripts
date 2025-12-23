@@ -228,7 +228,8 @@ def convert_plan_to_markdown(plan_data: Dict[str, Any]) -> str:
     
     # If no errors, no resource changes, and no output changes, return short message
     if not errors and not resource_changes and not output_changes:
-        return "Your infrastructure is already up to date"
+        md_lines.append("Your infrastructure is already up to date")
+        return "\n".join(md_lines)
     
     # Display errors if any
     if errors:
@@ -751,7 +752,7 @@ def main():
                 logs_data = parse_terraform_json_lines(tf_logs_file, errors_only=True)
                 # Merge errors from logs into the plan_data
                 if logs_data.get("errors"):
-                    plan_data["errors"] = logs_data["errors"]
+                    plan_data.setdefault("errors", []).extend(logs_data["errors"])
         
         elif tf_logs_file.exists():
             # Fall back to tf-logs.json if tf-show.json doesn't exist
