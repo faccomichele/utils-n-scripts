@@ -268,9 +268,6 @@ def convert_plan_to_markdown(plan_data: Dict[str, Any]) -> str:
         md_lines.append(f"**Terraform Version**: `{plan_data['terraform_version']}`")
         md_lines.append("")
     
-    # Get resource changes
-    resource_changes = plan_data.get("resource_changes", [])
-    
     if not resource_changes:
         md_lines.append("No resource changes detected.")
         return "\n".join(md_lines)
