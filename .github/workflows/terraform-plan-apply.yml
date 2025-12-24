@@ -27,6 +27,7 @@ permissions:
 
 env:
   ENVNAME: ${{ inputs.environment }}
+  REGION: ${{ inputs.region }}
 
 jobs:
   terraform_plan_apply:
@@ -76,9 +77,9 @@ jobs:
     - name: Get S3 Backend configuration for storing shared state files
       shell: bash
       env:
-        REGION: ${{ vars.TF_STATE_SSM_REGION || 'eu-central-1' }}
+        SSMREGION: ${{ vars.TF_STATE_SSM_REGION || 'eu-central-1' }}
       run: |
-        VALUE=$(aws ssm get-parameter --name /terraform-core-aws/${ENVNAME}/backend_configuration_hcl --query "Parameter.Value" --output text --with-decryption --region $REGION)
+        VALUE=$(aws ssm get-parameter --name /terraform-core-aws/${ENVNAME}/backend_configuration_hcl --query "Parameter.Value" --output text --with-decryption --region $SSMREGION)
         mkdir -p config
         echo "$VALUE" | awk -v r="${{ steps.repo_details.outputs.repo-name }}" '{gsub(/CHANGE_ME/, r); print}' > config/${ENVNAME}.s3.tfbackend
       
