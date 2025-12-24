@@ -28,7 +28,6 @@ on:
 
 env:
   ENVNAME: ${{ inputs.environment }}
-  # REGION: ${{ inputs.region }}  
 
 jobs:
   terraform_plan_apply:
@@ -49,7 +48,7 @@ jobs:
       # TO DO: Hardcode the script version once stable
     - name: Get the Terraform Report Script
       shell: bash
-      run: wget -O tf_out_to_md.py https://github.com/faccomichele/utils-n-scripts/raw/94a4e2260e8b6084a0006d6bce520254b1742d12/terraform/tf_out_to_md.py
+      run: wget -O tf_out_to_md.py https://github.com/faccomichele/utils-n-scripts/raw/94a4e2260e8b6084a0006d6bce520254b1742d12/terraform/tf_out_to_md.py && chmod +x tf_out_to_md.py
 
     - name: Setup Python
       uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
@@ -66,7 +65,7 @@ jobs:
     - name: Retrieve the AWS IAM Role to be used
       id: aws_role
       shell: bash
-      run: echo "arn=arn:aws:iam::${{ vars[ steps.aws_env_ids.outputs.account ] }}:role/github_${{ steps.repo_details.outputs.repo-name }}_role" | tee -a $GITHUB_OUTPUT
+      run: echo "arn=arn:aws:iam::${{ vars[ steps.aws_env_ids.outputs.account ] }}:role/${{ steps.repo_details.outputs.repo-name }}" | tee -a $GITHUB_OUTPUT
 
     - name: AWS CLI Login
       uses: aws-actions/configure-aws-credentials@d4695650384537945e0b565ee73a714d361bcb04  # v5.5.1
@@ -79,27 +78,15 @@ jobs:
       id: s3_bucket_name_for_shared_state_files
       shell: bash
       env:
-        PARAMETER_NAME: '/emailage/terraform/shared_state/s3_bucket_name'
         REGION: ${{ vars.TF_STATE_SSM_REGION || 'eu-central-1' }}
-        FORMAT: 'text'
-        OUTPUT_FILE: config/${{ inputs.environment }}.s3.tfbackend
       run: |
-        if [[ -z $REGION ]]; then
-          VALUE=$(aws ssm get-parameter --name $PARAMETER_NAME --query "Parameter.Value" --output $FORMAT --with-decryption)
-        else
-          VALUE=$(aws ssm get-parameter --name $PARAMETER_NAME --query "Parameter.Value" --output $FORMAT --with-decryption --region $REGION)
-        fi
+        VALUE=$(aws ssm get-parameter --name /terraform-core-aws/${ENVNAME}/backend_configuration_hcl --query "Parameter.Value" --output text --with-decryption --region $REGION)
         echo 'param_value<<PARVAL' | tee -a $GITHUB_OUTPUT
         echo "$VALUE" | tee -a $GITHUB_OUTPUT
         echo 'PARVAL' | tee -a $GITHUB_OUTPUT
-
-        # Do not change the indentation on the IF statement below otherwise it will break!  
-        if [[ ! -z $OUTPUT ]]; then
-        echo "Saving output to file: $OUTPUT"
-        cat > $OUTPUT << EOF
+        cat > config/${ENVNAME}.s3.tfbackend << EOF
         $VALUE
         EOF
-        fi
       
     - name: Configure Terraform
       uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # 3.1.2
@@ -171,15 +158,10 @@ jobs:
       shell: bash
       run: |
         if [[ "${{ inputs.just-plan }}" == "true" ]]; then
-          echo "action=plan -out=tfplan-${{ steps.unique_id.outputs.value }}" | tee -a $GITHUB_OUTPUT
+          echo "action=plan -out=tfplan" | tee -a $GITHUB_OUTPUT
         else
           echo "action=apply -auto-approve" | tee -a $GITHUB_OUTPUT
         fi
-        BUILDSHA=''
-        if [[ -f lambda-${{github.sha}}.zip ]]; then
-          BUILDSHA='-var=build_sha=${{ github.sha }}'
-        fi
-        echo "build-sha=$BUILDSHA" | tee -a $GITHUB_OUTPUT
         CONFIGFILE=''
         if [[ -f config/${{ steps.workspace.outputs.name }}.tfvars ]]; then
           CONFIGFILE='-var-file=config/${{ steps.workspace.outputs.name }}.tfvars'
@@ -192,91 +174,53 @@ jobs:
       id: tf_run
       shell: bash
       env:
-        GRAFANA_AUTH: ${{ secrets.GRAFANA_AUTH }}
         ACTION: ${{ steps.options.outputs.action }}
         CONFIG_FILE: ${{ steps.options.outputs.config-file }}
-        TAGS_VAR: ${{ steps.tags_var.outputs.value }}
-        BUILD_SHA: ${{ steps.options.outputs.build-sha }}
-        TARGET: ${{ steps.options.outputs.target }}
-      run: |
-        terraform $ACTION -json -no-color \
-        ${CONFIG_FILE:+$CONFIG_FILE} \
-        -var="$TAGS_VAR" \
-        ${BUILD_SHA:+$BUILD_SHA} \
-        ${TARGET:+$TARGET} 2>&1 | tee tf-output.json
+        # TAGS_VAR: ${{ steps.tags_var.outputs.value }} # -var="$TAGS_VAR" \
+      run: terraform $ACTION -json -no-color ${CONFIG_FILE:+$CONFIG_FILE} 2>&1 | tee tf-logs.json
       working-directory: ${{ inputs.working-directory }}
 
-    - name: Detect Terraform Changes
-      id: tf_changes
+    - name: Create Show output from Plan action
+      if: ${{ inputs.just-plan == 'true' }}
+      shell: bash
+      run: terraform show -json tfplan > tf-show.json
+
+    - name: Run Terraform Output to MD Report
+      id: tf_report
       if: always()
       shell: bash
-      run: |
-        if [[ "${{ inputs.just-plan }}" == "true" ]]; then
-          # For 'plan', find the change_summary line in the JSON stream and check it.
-          if grep '"type":"change_summary"' tf-output.json | jq '(.changes.add == 0 and .changes.change == 0 and .changes.remove == 0)' | grep -q 'true'; then
-            echo "has_changes=false" | tee -a $GITHUB_OUTPUT
-          else
-            echo "has_changes=true" | tee -a $GITHUB_OUTPUT
-          fi
-        else
-          # For 'apply', find the 'apply' summary line in the JSON stream and check it.
-          if grep '"type":"change_summary"' tf-output.json | grep '"operation":"apply"' | jq '(.changes.add == 0 and .changes.change == 0 and .changes.remove == 0)' | grep -q 'true'; then
-            echo "has_changes=false" | tee -a $GITHUB_OUTPUT
-          else
-            echo "has_changes=true" | tee -a $GITHUB_OUTPUT
-          fi
-        fi
+      run: ./tf_out_to_md.py
       working-directory: ${{ inputs.working-directory }}
-
-    # - name: Run Terraform Output to MD Report
-    #   if: always() && steps.tf_changes.outputs.has_changes == 'true'
-    #   id: tf_report
-    #   uses: risk-bus-eml/emailage-reusable-workflows/.github/actions/tf-md-report@fix/faccmi01-tf-report
-    #   with:
-    #     unique-id: ${{ steps.unique_id.outputs.value }}
-    #     working-directory: ${{ inputs.working-directory }}
     
     - name: Add report to job summary
-      if: always() && steps.tf_report.outcome == 'success' && steps.tf_changes.outputs.has_changes == 'true'
+      if: always() && steps.tf_report.outcome == 'success'
       shell: bash
-      run: cat ${{ inputs.working-directory }}/tf-output-${{ steps.unique_id.outputs.value }}.md >> $GITHUB_STEP_SUMMARY
+      run: cat ${{ inputs.working-directory }}/tf-report.md >> $GITHUB_STEP_SUMMARY
     
-    # - name: Add no changes message to job summary
-    #   if: always() && steps.tf_changes.outputs.has_changes == 'false'
-    #   shell: bash
-    #   run: |
-    #     echo "## Terraform - No Changes" >> $GITHUB_STEP_SUMMARY
-    #     echo "" >> $GITHUB_STEP_SUMMARY
-    #     echo "✅ No changes detected. Your infrastructure matches the configuration." >> $GITHUB_STEP_SUMMARY
-        
     - name: Prepare Terraform output for comment
-      if: always() && github.event_name == 'pull_request'
+      if: always() && steps.tf_report.outcome == 'success' && github.event_name == 'pull_request'
       id: tf_comment_prep
       shell: bash
       run: |
         COMMENT_BODY=""
-        if [[ "${{ steps.tf_changes.outputs.has_changes }}" == "false" ]]; then
-          COMMENT_BODY="✅ **No Changes** - Your infrastructure matches the configuration."
-        else
-          MD_FILE="${{ inputs.working-directory }}/tf-output-${{ steps.unique_id.outputs.value }}.md"
-          if [[ -f "$MD_FILE" ]]; then
-            # Check for errors
-            ERRORS=$(grep -E '^### ❌ Error in' "$MD_FILE" || true)
-            if [[ -n "$ERRORS" ]]; then
-              COMMENT_BODY+="### 🚨 Terraform Errors Detected"$'\n\n'
-              COMMENT_BODY+=$(echo "$ERRORS" | sed 's/### ❌ Error in/❌/g')
-              COMMENT_BODY+=$'\n\n'
-            fi
-
-            # Get summary
-            SUMMARY=$(awk '/## Summary/{flag=1;next}/## Detailed Changes/{flag=0}flag' "$MD_FILE")
-            if [[ -n "$SUMMARY" ]]; then
-              COMMENT_BODY+="### Plan Summary"$'\n'
-              COMMENT_BODY+="$SUMMARY"
-            fi
-          else
-            COMMENT_BODY="Could not find the Terraform report file."
+        MD_FILE="${{ inputs.working-directory }}/tf-report.md"
+        if [[ -f "$MD_FILE" ]]; then
+          # Check for errors
+          ERRORS=$(grep -E '^### ❌ Error in' "$MD_FILE" || true)
+          if [[ -n "$ERRORS" ]]; then
+            COMMENT_BODY+="### 🚨 Terraform Errors Detected"$'\n\n'
+            COMMENT_BODY+=$(echo "$ERRORS" | sed 's/### ❌ Error in/❌/g')
+            COMMENT_BODY+=$'\n\n'
           fi
+
+          # Get summary
+          SUMMARY=$(awk '/## Summary/{flag=1;next}/## Detailed Changes/{flag=0}flag' "$MD_FILE")
+          if [[ -n "$SUMMARY" ]]; then
+            COMMENT_BODY+="### Plan Summary"$'\n'
+            COMMENT_BODY+="$SUMMARY"
+          fi
+        else
+          COMMENT_BODY="Could not find the Terraform report file."
         fi
 
         # Add link to job summary
@@ -302,7 +246,7 @@ jobs:
             return;
           }
 
-          const comment_title = `### Terraform Plan for \`${{ inputs.working-directory }}\` in \`${{ env.ENVNAME }}_${{ inputs.region }}\``;
+          const comment_title = `### Terraform Plan for \`${{ inputs.working-directory }}\` in \`${{ inputs.environment }}_${{ inputs.region }}\``;
           const comment_body = `${comment_title}
 
           ${process.env.COMMENT_BODY}`
