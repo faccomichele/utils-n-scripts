@@ -47,7 +47,7 @@ jobs:
       # TO DO: Hardcode the script version once stable
     - name: Get the Terraform Report Script
       shell: bash
-      run: wget -O tf_out_to_md.py https://github.com/faccomichele/utils-n-scripts/raw/94a4e2260e8b6084a0006d6bce520254b1742d12/terraform/tf_out_to_md.py && chmod +x tf_out_to_md.py
+      run: wget -O tf_out_to_md.py https://raw.githubusercontent.com/faccomichele/utils-n-scripts/refs/heads/main/terraform/tf_out_to_md.py && chmod +x tf_out_to_md.py
 
     - name: Setup Python
       uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
