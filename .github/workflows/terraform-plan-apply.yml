@@ -64,7 +64,7 @@ jobs:
     - name: Retrieve the AWS IAM Role to be used
       id: aws_role
       shell: bash
-      run: echo "arn=arn:aws:iam::${{ vars[ steps.aws_env_ids.outputs.account ] }}:role/${{ steps.repo_details.outputs.repo-name }}" | tee -a $GITHUB_OUTPUT
+      run: echo "arn=arn:aws:iam::${{ vars[ steps.aws_env_ids.outputs.account ] }}:role/${{ vars[ steps.aws_env_ids.outputs.role ] }}" | tee -a $GITHUB_OUTPUT
 
     - name: AWS CLI Login
       uses: aws-actions/configure-aws-credentials@d4695650384537945e0b565ee73a714d361bcb04  # v5.5.1
