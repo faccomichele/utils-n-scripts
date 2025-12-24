@@ -74,48 +74,19 @@ jobs:
         role-duration-seconds: '3600'
     
     - name: Get S3 Backend configuration for storing shared state files
-      id: s3_bucket_name_for_shared_state_files
       shell: bash
       env:
         REGION: ${{ vars.TF_STATE_SSM_REGION || 'eu-central-1' }}
       run: |
         VALUE=$(aws ssm get-parameter --name /terraform-core-aws/${ENVNAME}/backend_configuration_hcl --query "Parameter.Value" --output text --with-decryption --region $REGION)
-        echo 'param_value<<PARVAL' | tee -a $GITHUB_OUTPUT
-        echo "$VALUE" | tee -a $GITHUB_OUTPUT
-        echo 'PARVAL' | tee -a $GITHUB_OUTPUT
-        cat > config/${ENVNAME}.s3.tfbackend << EOF
-        $VALUE
-        EOF
+        mkdir -p config
+        echo "$VALUE" | awk -v r="${{ steps.repo_details.outputs.repo-name }}" '{gsub(/CHANGE_ME/, r); print}' > config/${ENVNAME}.s3.tfbackend
       
     - name: Configure Terraform
       uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # 3.1.2
       with:
         terraform_version:  ${{ vars.TF_VERSION || '1.14.3' }}
         terraform_wrapper: false
-
-    # - name: Download lambda zip file.
-    #   uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # 4.3.0
-    #   with:
-    #     merge-multiple: true
-    #     path: ${{ inputs.working-directory }}
-    #     pattern: lambda-${{ github.sha }}.zip
-
-    # - name: S3 Terraform Backend
-    #   shell: bash
-    #   env:
-    #     CLUSTERNAME: "${{ vars.EKS_CLUSTER }}"
-    #   run: |
-    #     if [[ ! -f config/${{ inputs.environment }}.s3.tfbackend ]]; then
-    #       mkdir -p config
-    #       echo "bucket = \"${{ steps.s3_bucket_name_for_shared_state_files.outputs.param_value }}\"" | tee config/${{ inputs.environment }}.s3.tfbackend
-    #       echo "region = \"${{ steps.tf_region.outputs.name }}\"" | tee -a config/${{ inputs.environment }}.s3.tfbackend
-    #       if [[ "$CLUSTERNAME" == "" ]]; then
-    #         echo "key = \"${{ inputs.repo-name }}/terraform.tfstate\"" | tee -a config/${{ inputs.environment }}.s3.tfbackend
-    #       else
-    #         echo "key = \"$CLUSTERNAME/${{ inputs.repo-name }}/terraform.tfstate\"" | tee -a config/${{ inputs.environment }}.s3.tfbackend
-    #       fi
-    #     fi
-    #   working-directory: ${{ inputs.working-directory }}
 
     - name: Init Terraform
       shell: bash
