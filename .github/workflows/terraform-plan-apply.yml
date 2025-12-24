@@ -20,11 +20,10 @@ on:
         type: string
         default: "."
 
-      
-# permissions:
-#   id-token: write
-#   contents: write
-#   pull-requests: write
+permissions:
+  id-token: write
+  pull-requests: write
+  contents: read
 
 env:
   ENVNAME: ${{ inputs.environment }}
