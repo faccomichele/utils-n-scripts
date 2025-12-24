@@ -80,8 +80,7 @@ jobs:
         SSMREGION: ${{ vars.TF_STATE_SSM_REGION || 'eu-central-1' }}
       run: |
         VALUE=$(aws ssm get-parameter --name /terraform-core-aws/${ENVNAME}/backend_configuration_hcl --query "Parameter.Value" --output text --with-decryption --region $SSMREGION)
-        mkdir -p config
-        echo "$VALUE" | awk -v r="${{ steps.repo_details.outputs.repo-name }}" '{gsub(/CHANGE_ME/, r); print}' > config/${ENVNAME}.s3.tfbackend
+        echo "$VALUE" | awk -v r="${{ steps.repo_details.outputs.repo-name }}" '{gsub(/CHANGE_ME/, r); print}' > s3backend.tf
       
     - name: Configure Terraform
       uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # 3.1.2
@@ -91,7 +90,7 @@ jobs:
 
     - name: Init Terraform
       shell: bash
-      run: terraform init -backend-config=config/${ENVNAME}.s3.tfbackend
+      run: terraform init
       working-directory: ${{ inputs.working-directory }}
 
     - name: Set Terraform Workspace Name
