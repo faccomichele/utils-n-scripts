@@ -109,21 +109,21 @@ jobs:
       run: terraform workspace select -or-create ${{ steps.workspace.outputs.name }}
       working-directory: ${{ inputs.working-directory }}
 
-    # - name: Set Tags Variable
-    #   shell: bash
-    #   run: |
-    #     TAGS=$(echo """{
-    #       \"eml:repo_name\": \"${{ inputs.repo-name }}\",
-    #       \"lnrs:repo\": \"${{ inputs.repo-url }}\",
-    #       \"lnrs:owner_email\": \"${{ vars.OWNER_EMAIL }}\",
-    #       \"eml:repo_path\": \"${{ inputs.working-directory }}\",
-    #       \"eml:repo_tmpl\": \"${{ inputs.repo-tmpl }}\"
-    #     }""" | jq -c)
-    #     if [[ "${{ vars.EKS_CLUSTER }}" != "" ]]; then
-    #       TAGS=$(echo $TAGS "{\"eml:eks_cluster\": \"${{ vars.EKS_CLUSTER }}\"}" | jq -sc '.[0] * .[1]')
-    #     fi
-    #     echo "value=tags=$TAGS" | tee -a $GITHUB_OUTPUT
-    #   id: tags_var
+    - name: Set Tags Variable
+      shell: bash
+      run: |
+        TAGS=$(echo """{
+          \"Repository\": \"${{ steps.repo_details.outputs.repo-name }}\",
+          \"Repository URL\": \"${{ steps.repo_details.outputs.repo-url }}\",
+          \"Environment\": \"${{ inputs.environment }}\",
+          \"Region\": \"${{ inputs.region }}\",
+          \"Path\": \"${{ inputs.working-directory }}\"
+        }""" | jq -c)
+        if [[ "${{ vars.EKS_CLUSTER }}" != "" ]]; then
+          TAGS=$(echo $TAGS "{\"EKS Cluster\": \"${{ vars.EKS_CLUSTER }}\"}" | jq -sc '.[0] * .[1]')
+        fi
+        echo "value=tags=$TAGS" | tee -a $GITHUB_OUTPUT
+      id: tags_var
 
     - name: Set Terraform Options
       shell: bash
@@ -147,8 +147,8 @@ jobs:
       env:
         ACTION: ${{ steps.options.outputs.action }}
         CONFIG_FILE: ${{ steps.options.outputs.config-file }}
-        # TAGS_VAR: ${{ steps.tags_var.outputs.value }} # -var="$TAGS_VAR" \
-      run: terraform $ACTION -json -no-color ${CONFIG_FILE:+$CONFIG_FILE} 2>&1 | tee tf-logs.json
+        TAGS_VAR: ${{ steps.tags_var.outputs.value }}
+      run: terraform $ACTION -json -no-color ${CONFIG_FILE:+$CONFIG_FILE} -var="$TAGS_VAR" 2>&1 | tee tf-logs.json
       working-directory: ${{ inputs.working-directory }}
 
     - name: Create Show output from Plan action
