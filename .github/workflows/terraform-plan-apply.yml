@@ -61,7 +61,7 @@ jobs:
       run: |
         echo "role=${ENVNAME^^}_ROLE_SECRET" | tee -a $GITHUB_OUTPUT
         echo "account=${ENVNAME^^}_AWS_ID" | tee -a $GITHUB_OUTPUT
-        echo "roleprefix=github-role-for-$(echo "${{ steps.repo_details.outputs.repo-name }}" | cut -c1-17)-GitHubActionsRole-" | tee -a $GITHUB_OUTPUT
+        echo "roleprefix=github-role-for-$(echo "${{ steps.repo_details.outputs.repo-name }}" | cut -c1-17)-GitHubActionsRole" | tee -a $GITHUB_OUTPUT
       
     - name: Retrieve the AWS IAM Role to be used
       id: aws_role
