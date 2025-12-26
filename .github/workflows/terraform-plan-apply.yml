@@ -77,10 +77,22 @@ jobs:
     - name: Get S3 Backend configuration for storing shared state files
       shell: bash
       env:
-        SSMREGION: ${{ vars.TF_STATE_SSM_REGION || 'eu-central-1' }}
+        S3REGION: ${{ vars.TF_STATE_SSM_REGION || 'eu-central-1' }}
       run: |
-        VALUE=$(aws ssm get-parameter --name /terraform-core-aws/${ENVNAME}/backend_configuration_hcl --query "Parameter.Value" --output text --with-decryption --region $SSMREGION)
-        echo "$VALUE" | awk -v r="${{ steps.repo_details.outputs.repo-name }}" '{gsub(/CHANGE_ME/, r); print}' > s3backend.tf
+        cat > s3backend.tf << EOF
+        terraform {
+          backend "s3" {
+            bucket        = "terraform-core-aws-state-files-${ENVNAME}-${{ secrets.CORE_TERRAFORM_ACCOUNT }}"
+            key           = "${{ steps.repo_details.outputs.repo-name }}/terraform.tfstate"
+            region        = "${S3REGION}"
+            assume_role   = {
+              role_arn    = "arn:aws:iam::${{ secrets.CORE_TERRAFORM_ACCOUNT }}:role/terraform-core-backend-setup-TerraformStateRole-${{ secrets.CORE_TERRAFORM_ROLE_SECRET}}"
+            }
+            encrypt       = true
+            use_lockfile  = true
+          }
+        }
+        EOF
       
     - name: Configure Terraform
       uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # 3.1.2
@@ -112,11 +124,14 @@ jobs:
       shell: bash
       run: |
         TAGS=$(echo """{
-          \"Repository\": \"${{ steps.repo_details.outputs.repo-name }}\",
-          \"Repository URL\": \"${{ steps.repo_details.outputs.repo-url }}\",
+          \"Project\": \"${{ steps.repo_details.outputs.repo-name }}\",
+          \"RepositoryURL\": \"${{ steps.repo_details.outputs.repo-url }}\",
           \"Environment\": \"${{ inputs.environment }}\",
+          \"Automation\": \"Terraform\",
+          \"Organization\": \"${{ github.repository_owner }}\",
           \"Region\": \"${{ inputs.region }}\",
-          \"Path\": \"${{ inputs.working-directory }}\"
+          \"RepositoryPath\": \"${{ inputs.working-directory }}\",
+          \"RepositoryFile\": \"main.tf\"
         }""" | jq -c)
         if [[ "${{ vars.EKS_CLUSTER }}" != "" ]]; then
           TAGS=$(echo $TAGS "{\"EKS Cluster\": \"${{ vars.EKS_CLUSTER }}\"}" | jq -sc '.[0] * .[1]')
