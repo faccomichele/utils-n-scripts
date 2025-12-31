@@ -225,9 +225,10 @@ def convert_plan_to_markdown(plan_data: Dict[str, Any]) -> str:
     # Check if there are any resource changes
     resource_changes = plan_data.get("resource_changes", [])
     output_changes = plan_data.get("output_changes", {})
+    outputs = plan_data.get("outputs", {})
     
-    # If no errors, no resource changes, and no output changes, return short message
-    if not errors and not resource_changes and not output_changes:
+    # If no errors, no resource changes, no output changes, and no outputs, return short message
+    if not errors and not resource_changes and not output_changes and not outputs:
         md_lines.append("✅ No changes detected. Your infrastructure is already up to date.")
         return "\n".join(md_lines)
     
@@ -269,272 +270,273 @@ def convert_plan_to_markdown(plan_data: Dict[str, Any]) -> str:
         md_lines.append(f"**Terraform Version**: `{plan_data['terraform_version']}`")
         md_lines.append("")
     
-    if not resource_changes:
+    if not resource_changes and not outputs:
         md_lines.append("No resource changes detected.")
         return "\n".join(md_lines)
     
-    # Count changes by action
-    action_counts = {
-        "create": 0,
-        "delete": 0,
-        "update": 0,
-        "update_tags_only": 0,
-        "replace": 0,
-        "read": 0,
-        "no-op": 0
-    }
-    
-    for rc in resource_changes:
-        actions = rc.get("change", {}).get("actions", [])
-        tags_only = rc.get("tags_only", False)
-        
-        if "create" in actions and "delete" in actions:
-            action_counts["replace"] += 1
-        elif "create" in actions:
-            action_counts["create"] += 1
-        elif "delete" in actions:
-            action_counts["delete"] += 1
-        elif "update" in actions:
-            if tags_only:
-                action_counts["update_tags_only"] += 1
-            else:
-                action_counts["update"] += 1
-        elif "read" in actions:
-            action_counts["read"] += 1
-        else:
-            action_counts["no-op"] += 1
-    
-    # Summary section
-    md_lines.append("## Summary")
-    md_lines.append("")
-    md_lines.append(f"- ➕ **Create**: {action_counts['create']} resource(s)")
-    md_lines.append(f"- 🔄 **Update**: {action_counts['update']} resource(s)")
-    if action_counts['update_tags_only'] > 0:
-        md_lines.append(f"- 🏷️ **Update (tags only)**: {action_counts['update_tags_only']} resource(s)")
-    md_lines.append(f"- 🔁 **Replace**: {action_counts['replace']} resource(s)")
-    md_lines.append(f"- 🗑️ **Delete**: {action_counts['delete']} resource(s)")
-    if action_counts['read'] > 0:
-        md_lines.append(f"- 📖 **Read**: {action_counts['read']} resource(s)")
-    md_lines.append("")
-    
-    # Extract and display all tag changes for tag-only resources
-    if action_counts['update_tags_only'] > 0:
-        all_tag_changes = extract_all_tag_changes(resource_changes)
-        
-        if all_tag_changes:
-            md_lines.append("### Tag Changes Summary")
-            md_lines.append("")
-            md_lines.append(f"Tags being updated across {action_counts['update_tags_only']} resource(s):")
-            md_lines.append("")
-            
-            # Separate common and varied tags
-            common_tags = {}
-            varied_tags = {}
-            
-            for tag_key, change_info in sorted(all_tag_changes.items()):
-                if change_info.get("is_common", False):
-                    common_tags[tag_key] = change_info
-                else:
-                    varied_tags[tag_key] = change_info
-            
-            # Display common tags first
-            if common_tags:
-                md_lines.append("#### Common to all resources:")
-                md_lines.append("")
-                for tag_key, change_info in sorted(common_tags.items()):
-                    before_val = change_info.get("before")
-                    after_val = change_info.get("after")
-                    
-                    if before_val is None and after_val is not None:
-                        md_lines.append(f"- **{tag_key}**: (new) → `{after_val}`")
-                    elif before_val is not None and after_val is None:
-                        md_lines.append(f"- **{tag_key}**: `{before_val}` → (removed)")
-                    else:
-                        md_lines.append(f"- **{tag_key}**: `{before_val}` → `{after_val}`")
-                
-                md_lines.append("")
-            
-            # Display varied tags
-            if varied_tags:
-                md_lines.append("#### Varies by resource:")
-                md_lines.append("")
-                for tag_key, change_info in sorted(varied_tags.items()):
-                    if "changes" in change_info:
-                        # Multiple different changes
-                        md_lines.append(f"- **{tag_key}**: Multiple values")
-                        for change in change_info["changes"]:
-                            before_val = change.get("before")
-                            after_val = change.get("after")
-                            count = change.get("count")
-                            if before_val is None and after_val is not None:
-                                md_lines.append(f"  - (new) → `{after_val}` ({count} resource(s))")
-                            elif before_val is not None and after_val is None:
-                                md_lines.append(f"  - `{before_val}` → (removed) ({count} resource(s))")
-                            else:
-                                md_lines.append(f"  - `{before_val}` → `{after_val}` ({count} resource(s))")
-                    else:
-                        # Single change but not on all resources
-                        before_val = change_info.get("before")
-                        after_val = change_info.get("after")
-                        count = change_info.get("count")
-                        
-                        if before_val is None and after_val is not None:
-                            md_lines.append(f"- **{tag_key}**: (new) → `{after_val}` ({count}/{action_counts['update_tags_only']} resource(s))")
-                        elif before_val is not None and after_val is None:
-                            md_lines.append(f"- **{tag_key}**: `{before_val}` → (removed) ({count}/{action_counts['update_tags_only']} resource(s))")
-                        else:
-                            md_lines.append(f"- **{tag_key}**: `{before_val}` → `{after_val}` ({count}/{action_counts['update_tags_only']} resource(s))")
-                
-                md_lines.append("")
-    
-    # Detailed changes section
-    md_lines.append("## Detailed Changes")
-    md_lines.append("")
-    
-    # Group by action type (skip update_tags_only since we show common changes instead)
-    for action_type in ["create", "update", "replace", "delete"]:
-        resources_for_action = []
+    # Count changes by action (only if there are resource changes)
+    if resource_changes:
+        action_counts = {
+            "create": 0,
+            "delete": 0,
+            "update": 0,
+            "update_tags_only": 0,
+            "replace": 0,
+            "read": 0,
+            "no-op": 0
+        }
         
         for rc in resource_changes:
             actions = rc.get("change", {}).get("actions", [])
             tags_only = rc.get("tags_only", False)
             
-            if action_type == "replace" and "create" in actions and "delete" in actions:
-                resources_for_action.append(rc)
-            elif action_type == "create" and "create" in actions and "delete" not in actions:
-                resources_for_action.append(rc)
-            elif action_type == "delete" and "delete" in actions and "create" not in actions:
-                resources_for_action.append(rc)
-            elif action_type == "update" and "update" in actions and not tags_only:
-                resources_for_action.append(rc)
-        
-        if resources_for_action:
-            action_emoji = {
-                "create": "➕ Resources to Create",
-                "update": "🔄 Resources to Update",
-                "replace": "🔁 Resources to Replace",
-                "delete": "🗑️ Resources to Delete"
-            }
-            
-            md_lines.append(f"### {action_emoji.get(action_type, action_type.title())}")
-            md_lines.append("")
-            
-            for rc in resources_for_action:
-                resource_type = rc.get("type", "unknown")
-                resource_name = rc.get("name", "unknown")
-                address = rc.get("address", f"{resource_type}.{resource_name}")
-                
-                md_lines.append(f"#### `{address}`")
-                md_lines.append("")
-                md_lines.append(f"**Type**: `{resource_type}`")
-                md_lines.append("")
-                
-                # Add change details
-                change = rc.get("change", {})
-                actions = change.get("actions", [])
-                
-                if action_type == "replace":
-                    # For replace, identify which attributes force replacement
-                    action_reason = rc.get("action_reason") or change.get("action_reason")
-                    
-                    # Get replace paths from change object
-                    replace_paths = change.get("replace_paths", [])
-                    force_replace_attrs = set()
-                    
-                    # Extract attribute names from replace_paths
-                    for path in replace_paths:
-                        if isinstance(path, list) and len(path) > 0:
-                            # Path is like ["name_prefix"] or ["tags", "Name"]
-                            force_replace_attrs.add(path[0])
-                    
-                    # List attributes that force replacement
-                    if force_replace_attrs:
-                        md_lines.append("**Attributes forcing replacement**:")
-                        md_lines.append("")
-                        for attr in sorted(force_replace_attrs):
-                            md_lines.append(f"  - `{attr}`")
-                        md_lines.append("")
-                    
-                    # Show all configuration changes
-                    after = change.get("after", {})
-                    if after and isinstance(after, dict):
-                        config_lines = []
-                        for key in sorted(after.keys()):
-                            value = after[key]
-                            if change.get("after_sensitive", {}).get(key):
-                                config_lines.append(f"  - **{key}**: `(sensitive value)`")
-                            else:
-                                formatted = format_value(value, 0).strip()
-                                if formatted:  # Only add if non-empty
-                                    config_lines.append(f"  - **{key}**: {formatted}")
-                        if config_lines:
-                            md_lines.append("**Configuration**:")
-                            md_lines.append("")
-                            md_lines.extend(config_lines)
-                            md_lines.append("")
-                
-                elif action_type == "create":
-                    # For create, show the new configuration
-                    after = change.get("after", {})
-                    if after and isinstance(after, dict):
-                        config_lines = []
-                        for key in sorted(after.keys()):
-                            value = after[key]
-                            if change.get("after_sensitive", {}).get(key):
-                                config_lines.append(f"  - **{key}**: `(sensitive value)`")
-                            else:
-                                formatted = format_value(value, 0).strip()
-                                if formatted:  # Only add if non-empty
-                                    config_lines.append(f"  - **{key}**: {formatted}")
-                        if config_lines:
-                            md_lines.append("**Configuration**:")
-                            md_lines.append("")
-                            md_lines.extend(config_lines)
-                            md_lines.append("")
-                
-                elif action_type == "update":
-                    # For updates, show what's changing
-                    change_lines = process_change(change)
-                    if change_lines:
-                        md_lines.append("**Changes**:")
-                        md_lines.append("")
-                        md_lines.extend(change_lines)
-                        md_lines.append("")
-                
-                elif action_type == "delete":
-                    # Add action reasons if available for deletions (check root level)
-                    action_reason = rc.get("action_reason") or change.get("action_reason")
-                    if action_reason:
-                        # Format the action reason for better readability
-                        reason_text = action_reason.replace("_", " ").title()
-                        md_lines.append(f"**Reason**: {reason_text}")
-                        md_lines.append("")
-                    
-                    # For delete, show what's being removed
-                    before = change.get("before", {})
-                    if before and isinstance(before, dict):
-                        delete_lines = []
-                        for key in sorted(before.keys())[:10]:  # Limit to first 10 attributes
-                            value = before[key]
-                            formatted = format_value(value, 0).strip()
-                            if formatted:  # Only add if non-empty
-                                delete_lines.append(f"  - **{key}**: {formatted}")
-                        if delete_lines:
-                            md_lines.append("**Resource being deleted**:")
-                            md_lines.append("")
-                            md_lines.extend(delete_lines)
-                            md_lines.append("")
-                
-                # Add action reasons if available for other action types
+            if "create" in actions and "delete" in actions:
+                action_counts["replace"] += 1
+            elif "create" in actions:
+                action_counts["create"] += 1
+            elif "delete" in actions:
+                action_counts["delete"] += 1
+            elif "update" in actions:
+                if tags_only:
+                    action_counts["update_tags_only"] += 1
                 else:
-                    action_reason = rc.get("action_reason") or change.get("action_reason")
-                    if action_reason:
-                        reason_text = action_reason.replace("_", " ").title()
-                        md_lines.append(f"**Reason**: {reason_text}")
-                        md_lines.append("")
-                
-                md_lines.append("---")
+                    action_counts["update"] += 1
+            elif "read" in actions:
+                action_counts["read"] += 1
+            else:
+                action_counts["no-op"] += 1
+        
+        # Summary section
+        md_lines.append("## Summary")
+        md_lines.append("")
+        md_lines.append(f"- ➕ **Create**: {action_counts['create']} resource(s)")
+        md_lines.append(f"- 🔄 **Update**: {action_counts['update']} resource(s)")
+        if action_counts['update_tags_only'] > 0:
+            md_lines.append(f"- 🏷️ **Update (tags only)**: {action_counts['update_tags_only']} resource(s)")
+        md_lines.append(f"- 🔁 **Replace**: {action_counts['replace']} resource(s)")
+        md_lines.append(f"- 🗑️ **Delete**: {action_counts['delete']} resource(s)")
+        if action_counts['read'] > 0:
+            md_lines.append(f"- 📖 **Read**: {action_counts['read']} resource(s)")
+        md_lines.append("")
+        
+        # Extract and display all tag changes for tag-only resources
+        if action_counts['update_tags_only'] > 0:
+            all_tag_changes = extract_all_tag_changes(resource_changes)
+            
+            if all_tag_changes:
+                md_lines.append("### Tag Changes Summary")
                 md_lines.append("")
+                md_lines.append(f"Tags being updated across {action_counts['update_tags_only']} resource(s):")
+                md_lines.append("")
+                
+                # Separate common and varied tags
+                common_tags = {}
+                varied_tags = {}
+                
+                for tag_key, change_info in sorted(all_tag_changes.items()):
+                    if change_info.get("is_common", False):
+                        common_tags[tag_key] = change_info
+                    else:
+                        varied_tags[tag_key] = change_info
+                
+                # Display common tags first
+                if common_tags:
+                    md_lines.append("#### Common to all resources:")
+                    md_lines.append("")
+                    for tag_key, change_info in sorted(common_tags.items()):
+                        before_val = change_info.get("before")
+                        after_val = change_info.get("after")
+                        
+                        if before_val is None and after_val is not None:
+                            md_lines.append(f"- **{tag_key}**: (new) → `{after_val}`")
+                        elif before_val is not None and after_val is None:
+                            md_lines.append(f"- **{tag_key}**: `{before_val}` → (removed)")
+                        else:
+                            md_lines.append(f"- **{tag_key}**: `{before_val}` → `{after_val}`")
+                    
+                    md_lines.append("")
+                
+                # Display varied tags
+                if varied_tags:
+                    md_lines.append("#### Varies by resource:")
+                    md_lines.append("")
+                    for tag_key, change_info in sorted(varied_tags.items()):
+                        if "changes" in change_info:
+                            # Multiple different changes
+                            md_lines.append(f"- **{tag_key}**: Multiple values")
+                            for change in change_info["changes"]:
+                                before_val = change.get("before")
+                                after_val = change.get("after")
+                                count = change.get("count")
+                                if before_val is None and after_val is not None:
+                                    md_lines.append(f"  - (new) → `{after_val}` ({count} resource(s))")
+                                elif before_val is not None and after_val is None:
+                                    md_lines.append(f"  - `{before_val}` → (removed) ({count} resource(s))")
+                                else:
+                                    md_lines.append(f"  - `{before_val}` → `{after_val}` ({count} resource(s))")
+                        else:
+                            # Single change but not on all resources
+                            before_val = change_info.get("before")
+                            after_val = change_info.get("after")
+                            count = change_info.get("count")
+                            
+                            if before_val is None and after_val is not None:
+                                md_lines.append(f"- **{tag_key}**: (new) → `{after_val}` ({count}/{action_counts['update_tags_only']} resource(s))")
+                            elif before_val is not None and after_val is None:
+                                md_lines.append(f"- **{tag_key}**: `{before_val}` → (removed) ({count}/{action_counts['update_tags_only']} resource(s))")
+                            else:
+                                md_lines.append(f"- **{tag_key}**: `{before_val}` → `{after_val}` ({count}/{action_counts['update_tags_only']} resource(s))")
+                    
+                    md_lines.append("")
+        
+        # Detailed changes section
+        md_lines.append("## Detailed Changes")
+        md_lines.append("")
+        
+        # Group by action type (skip update_tags_only since we show common changes instead)
+        for action_type in ["create", "update", "replace", "delete"]:
+            resources_for_action = []
+            
+            for rc in resource_changes:
+                actions = rc.get("change", {}).get("actions", [])
+                tags_only = rc.get("tags_only", False)
+                
+                if action_type == "replace" and "create" in actions and "delete" in actions:
+                    resources_for_action.append(rc)
+                elif action_type == "create" and "create" in actions and "delete" not in actions:
+                    resources_for_action.append(rc)
+                elif action_type == "delete" and "delete" in actions and "create" not in actions:
+                    resources_for_action.append(rc)
+                elif action_type == "update" and "update" in actions and not tags_only:
+                    resources_for_action.append(rc)
+            
+            if resources_for_action:
+                action_emoji = {
+                    "create": "➕ Resources to Create",
+                    "update": "🔄 Resources to Update",
+                    "replace": "🔁 Resources to Replace",
+                    "delete": "🗑️ Resources to Delete"
+                }
+                
+                md_lines.append(f"### {action_emoji.get(action_type, action_type.title())}")
+                md_lines.append("")
+                
+                for rc in resources_for_action:
+                    resource_type = rc.get("type", "unknown")
+                    resource_name = rc.get("name", "unknown")
+                    address = rc.get("address", f"{resource_type}.{resource_name}")
+                    
+                    md_lines.append(f"#### `{address}`")
+                    md_lines.append("")
+                    md_lines.append(f"**Type**: `{resource_type}`")
+                    md_lines.append("")
+                    
+                    # Add change details
+                    change = rc.get("change", {})
+                    actions = change.get("actions", [])
+                    
+                    if action_type == "replace":
+                        # For replace, identify which attributes force replacement
+                        action_reason = rc.get("action_reason") or change.get("action_reason")
+                        
+                        # Get replace paths from change object
+                        replace_paths = change.get("replace_paths", [])
+                        force_replace_attrs = set()
+                        
+                        # Extract attribute names from replace_paths
+                        for path in replace_paths:
+                            if isinstance(path, list) and len(path) > 0:
+                                # Path is like ["name_prefix"] or ["tags", "Name"]
+                                force_replace_attrs.add(path[0])
+                        
+                        # List attributes that force replacement
+                        if force_replace_attrs:
+                            md_lines.append("**Attributes forcing replacement**:")
+                            md_lines.append("")
+                            for attr in sorted(force_replace_attrs):
+                                md_lines.append(f"  - `{attr}`")
+                            md_lines.append("")
+                        
+                        # Show all configuration changes
+                        after = change.get("after", {})
+                        if after and isinstance(after, dict):
+                            config_lines = []
+                            for key in sorted(after.keys()):
+                                value = after[key]
+                                if change.get("after_sensitive", {}).get(key):
+                                    config_lines.append(f"  - **{key}**: `(sensitive value)`")
+                                else:
+                                    formatted = format_value(value, 0).strip()
+                                    if formatted:  # Only add if non-empty
+                                        config_lines.append(f"  - **{key}**: {formatted}")
+                            if config_lines:
+                                md_lines.append("**Configuration**:")
+                                md_lines.append("")
+                                md_lines.extend(config_lines)
+                                md_lines.append("")
+                    
+                    elif action_type == "create":
+                        # For create, show the new configuration
+                        after = change.get("after", {})
+                        if after and isinstance(after, dict):
+                            config_lines = []
+                            for key in sorted(after.keys()):
+                                value = after[key]
+                                if change.get("after_sensitive", {}).get(key):
+                                    config_lines.append(f"  - **{key}**: `(sensitive value)`")
+                                else:
+                                    formatted = format_value(value, 0).strip()
+                                    if formatted:  # Only add if non-empty
+                                        config_lines.append(f"  - **{key}**: {formatted}")
+                            if config_lines:
+                                md_lines.append("**Configuration**:")
+                                md_lines.append("")
+                                md_lines.extend(config_lines)
+                                md_lines.append("")
+                    
+                    elif action_type == "update":
+                        # For updates, show what's changing
+                        change_lines = process_change(change)
+                        if change_lines:
+                            md_lines.append("**Changes**:")
+                            md_lines.append("")
+                            md_lines.extend(change_lines)
+                            md_lines.append("")
+                    
+                    elif action_type == "delete":
+                        # Add action reasons if available for deletions (check root level)
+                        action_reason = rc.get("action_reason") or change.get("action_reason")
+                        if action_reason:
+                            # Format the action reason for better readability
+                            reason_text = action_reason.replace("_", " ").title()
+                            md_lines.append(f"**Reason**: {reason_text}")
+                            md_lines.append("")
+                        
+                        # For delete, show what's being removed
+                        before = change.get("before", {})
+                        if before and isinstance(before, dict):
+                            delete_lines = []
+                            for key in sorted(before.keys())[:10]:  # Limit to first 10 attributes
+                                value = before[key]
+                                formatted = format_value(value, 0).strip()
+                                if formatted:  # Only add if non-empty
+                                    delete_lines.append(f"  - **{key}**: {formatted}")
+                            if delete_lines:
+                                md_lines.append("**Resource being deleted**:")
+                                md_lines.append("")
+                                md_lines.extend(delete_lines)
+                                md_lines.append("")
+                    
+                    # Add action reasons if available for other action types
+                    else:
+                        action_reason = rc.get("action_reason") or change.get("action_reason")
+                        if action_reason:
+                            reason_text = action_reason.replace("_", " ").title()
+                            md_lines.append(f"**Reason**: {reason_text}")
+                            md_lines.append("")
+                    
+                    md_lines.append("---")
+                    md_lines.append("")
     
     # Output changes section
     output_changes = plan_data.get("output_changes", {})
@@ -560,6 +562,33 @@ def convert_plan_to_markdown(plan_data: Dict[str, Any]) -> str:
                 elif before != after:
                     md_lines.append(f"Before: {format_value(before, 0).strip()}")
                     md_lines.append(f"After: {format_value(after, 0).strip()}")
+            
+            md_lines.append("")
+    
+    # Outputs section (from terraform apply)
+    outputs = plan_data.get("outputs", {})
+    if outputs:
+        md_lines.append("## Outputs")
+        md_lines.append("")
+        md_lines.append("*Values from terraform apply:*")
+        md_lines.append("")
+        
+        for output_name in sorted(outputs.keys()):
+            output_info = outputs[output_name]
+            value = output_info.get("value")
+            output_type = output_info.get("type", "unknown")
+            
+            md_lines.append(f"### `{output_name}`")
+            md_lines.append("")
+            md_lines.append(f"**Type**: `{output_type}`")
+            md_lines.append("")
+            
+            # Display value regardless of sensitive flag
+            formatted_value = format_value(value, 0).strip()
+            if formatted_value:
+                md_lines.append(f"**Value**: {formatted_value}")
+            else:
+                md_lines.append(f"**Value**: `{value}`")
             
             md_lines.append("")
     
@@ -592,6 +621,7 @@ def parse_terraform_json_lines(file_path: Path, errors_only: bool = False) -> Di
         "terraform_version": None,
         "resource_changes": [],
         "output_changes": {},
+        "outputs": {},
         "errors": []
     }
     
@@ -621,6 +651,17 @@ def parse_terraform_json_lines(file_path: Path, errors_only: bool = False) -> Di
                 # Extract Terraform version from version event
                 if event_type == "version":
                     plan_data["terraform_version"] = event.get("terraform")
+                
+                # Extract outputs from terraform apply
+                elif event_type == "outputs":
+                    outputs_data = event.get("outputs", {})
+                    for output_name, output_info in outputs_data.items():
+                        if isinstance(output_info, dict):
+                            plan_data["outputs"][output_name] = {
+                                "value": output_info.get("value"),
+                                "type": output_info.get("type"),
+                                "sensitive": output_info.get("sensitive", False)
+                            }
                 
                 # Track resource drift to identify what's changing
                 elif event_type == "resource_drift":
@@ -686,6 +727,10 @@ def parse_terraform_show_json(file_path: Path) -> Dict[str, Any]:
     """Parse Terraform show -json output (full plan file)."""
     with open(file_path, 'r') as f:
         data = json.load(f)
+    
+    # Ensure outputs key exists (tf-show.json doesn't have apply outputs)
+    if "outputs" not in data:
+        data["outputs"] = {}
     
     # Extract resource changes and mark tag-only updates
     resource_changes = data.get("resource_changes", [])
