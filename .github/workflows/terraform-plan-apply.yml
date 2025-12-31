@@ -55,6 +55,22 @@ jobs:
       with:
         python-version: ${{ vars.PYTHON_VERSION || '3.13' }}
 
+    - name: Setup Node.js
+      uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+      with:
+        node-version: ${{ vars.NODE_VERSION || '20' }}
+
+    - name: Run setup script if exists
+      shell: bash
+      run: |
+        if [ -f "./scripts/setup.sh" ]; then
+          echo "Running setup.sh script..."
+          chmod +x ./scripts/setup.sh
+          ./scripts/setup.sh
+        else
+          echo "No setup.sh script found, skipping..."
+        fi
+
     - name: Define the name of the variables to be retrieved based on the target environment
       id: aws_env_ids
       shell: bash
