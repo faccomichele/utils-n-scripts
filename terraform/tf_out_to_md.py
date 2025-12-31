@@ -656,11 +656,12 @@ def parse_terraform_json_lines(file_path: Path, errors_only: bool = False) -> Di
                 elif event_type == "outputs":
                     outputs_data = event.get("outputs", {})
                     for output_name, output_info in outputs_data.items():
-                        plan_data["outputs"][output_name] = {
-                            "value": output_info.get("value"),
-                            "type": output_info.get("type"),
-                            "sensitive": output_info.get("sensitive", False)
-                        }
+                        if isinstance(output_info, dict):
+                            plan_data["outputs"][output_name] = {
+                                "value": output_info.get("value"),
+                                "type": output_info.get("type"),
+                                "sensitive": output_info.get("sensitive", False)
+                            }
                 
                 # Track resource drift to identify what's changing
                 elif event_type == "resource_drift":
@@ -726,6 +727,10 @@ def parse_terraform_show_json(file_path: Path) -> Dict[str, Any]:
     """Parse Terraform show -json output (full plan file)."""
     with open(file_path, 'r') as f:
         data = json.load(f)
+    
+    # Ensure outputs key exists (tf-show.json doesn't have apply outputs)
+    if "outputs" not in data:
+        data["outputs"] = {}
     
     # Extract resource changes and mark tag-only updates
     resource_changes = data.get("resource_changes", [])
