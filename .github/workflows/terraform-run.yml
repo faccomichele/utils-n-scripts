@@ -1,4 +1,4 @@
-name: Run Terraform on AWS (reusable workflow)
+name: Terraform Run (reusable workflow)
 
 on:
   workflow_call:
@@ -11,10 +11,10 @@ on:
         description: 'The region available for the environment in AWS format embedded as a string, if applicable, i.e.: \"us-west-2\"'
         type: string
         default: 'global'
-      just-plan:
-        description: 'To review the changes only without applying any change, just run "plan" instead of "apply"'
-        type: boolean
-        default: true
+      action:
+        description: 'The Terraform action to perform: "plan" (review changes only), "apply" (apply changes), or "destroy" (destroy resources)'
+        type: string
+        default: 'plan'
       working-directory:
         description: 'The location containing the terraform related files'
         type: string
@@ -159,11 +159,21 @@ jobs:
     - name: Set Terraform Options
       shell: bash
       run: |
-        if [[ "${{ inputs.just-plan }}" == "true" ]]; then
-          echo "action=plan -out=tfplan" | tee -a $GITHUB_OUTPUT
-        else
-          echo "action=apply -auto-approve" | tee -a $GITHUB_OUTPUT
-        fi
+        case "${{ inputs.action }}" in
+          plan)
+            echo "action=plan -out=tfplan" | tee -a $GITHUB_OUTPUT
+            ;;
+          apply)
+            echo "action=apply -auto-approve" | tee -a $GITHUB_OUTPUT
+            ;;
+          destroy)
+            echo "action=destroy -auto-approve" | tee -a $GITHUB_OUTPUT
+            ;;
+          *)
+            echo "Error: Invalid action '${{ inputs.action }}'. Must be 'plan', 'apply', or 'destroy'."
+            exit 1
+            ;;
+        esac
         CONFIGFILE=''
         if [[ -f config/${{ steps.workspace.outputs.name }}.tfvars ]]; then
           CONFIGFILE='-var-file=config/${{ steps.workspace.outputs.name }}.tfvars'
@@ -183,9 +193,10 @@ jobs:
       working-directory: ${{ inputs.working-directory }}
 
     - name: Create Show output from Plan action
-      if: ${{ inputs.just-plan == 'true' }}
+      if: ${{ inputs.action == 'plan' }}
       shell: bash
       run: terraform show -json tfplan > tf-show.json
+      working-directory: ${{ inputs.working-directory }}
 
     - name: Run Terraform Output to MD Report
       id: tf_report
@@ -248,7 +259,7 @@ jobs:
             return;
           }
 
-          const comment_title = `### Terraform Plan for \`${{ inputs.working-directory }}\` in \`${{ inputs.environment }}_${{ inputs.region }}\``;
+          const comment_title = `### Terraform ${{ inputs.action }} for \`${{ inputs.working-directory }}\` in \`${{ inputs.environment }}_${{ inputs.region }}\``;
           const comment_body = `${comment_title}
 
           ${process.env.COMMENT_BODY}`
