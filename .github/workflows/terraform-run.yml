@@ -215,6 +215,8 @@ jobs:
       id: tf_comment_prep
       shell: bash
       run: |
+        ACTION="${{ inputs.action }}"
+        ACTION_TITLE="$(echo ${ACTION:0:1} | tr '[:lower:]' '[:upper:]')${ACTION:1}"
         COMMENT_BODY=""
         MD_FILE="${{ inputs.working-directory }}/tf-report.md"
         if [[ -f "$MD_FILE" ]]; then
@@ -229,7 +231,7 @@ jobs:
           # Get summary
           SUMMARY=$(awk '/## Summary/{flag=1;next}/## Detailed Changes/{flag=0}flag' "$MD_FILE")
           if [[ -n "$SUMMARY" ]]; then
-            COMMENT_BODY+="### Plan Summary"$'\n'
+            COMMENT_BODY+="### ${ACTION_TITLE} Summary"$'\n'
             COMMENT_BODY+="$SUMMARY"
           fi
         else
