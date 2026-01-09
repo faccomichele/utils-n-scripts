@@ -77,6 +77,7 @@ jobs:
       run: |
         echo "role=${ENVNAME^^}_ROLE_SECRET" | tee -a $GITHUB_OUTPUT
         echo "account=${ENVNAME^^}_AWS_ID" | tee -a $GITHUB_OUTPUT
+        echo "tfvars=${ENVNAME^^}_TF_VARS" | tee -a $GITHUB_OUTPUT
         echo "roleprefix=github-role-for-$(echo "${{ steps.repo_details.outputs.repo-name }}" | cut -c1-17)-GitHubActionsRole" | tee -a $GITHUB_OUTPUT
       
     - name: Retrieve the AWS IAM Role to be used
@@ -111,6 +112,23 @@ jobs:
         }
         EOF
       
+    - name: Create .tfvars for current environment
+      shell: bash
+      run: |
+        TFVARS_CONTENT="${{ secrets[ steps.aws_env_ids.outputs.tfvars ] }}"
+        if [[ -n "$TFVARS_CONTENT" ]]; then
+          if [[ "$REGION" == "global" ]]; then
+            NAME="$ENVNAME"
+          else
+            NAME="${ENVNAME}_${REGION}"
+          fi
+          mkdir -p config
+          echo "$TFVARS_CONTENT" > config/${NAME}.tfvars
+          echo "Created config/${NAME}.tfvars"
+        else
+          echo "No TFVARS secret found for ${ENVNAME}, skipping."
+        fi
+        
     - name: Configure Terraform
       uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # 3.1.2
       with:
