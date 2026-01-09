@@ -115,20 +115,29 @@ jobs:
     - name: Create .tfvars for current environment
       shell: bash
       run: |
-        TFVARS_CONTENT="${{ vars[ steps.aws_env_ids.outputs.tfvars ] }}"
-        if [[ -n "$TFVARS_CONTENT" ]]; then
-          if [[ "$REGION" == "global" ]]; then
-            NAME="$ENVNAME"
-          else
-            NAME="${ENVNAME}_${REGION}"
-          fi
-          mkdir -p "${{ inputs.working-directory }}/config"
-          printf '%s\n' "$TFVARS_CONTENT" > "${{ inputs.working-directory }}/config/${NAME}.tfvars"
-          cat "${{ inputs.working-directory }}/config/${NAME}.tfvars" # TEMP ONLY
-          echo "Created ${{ inputs.working-directory }}/config/${NAME}.tfvars"
+        TFVARS_SECRET="${{ secrets[ steps.aws_env_ids.outputs.tfvars ] }}"
+        TFVARS_VAR="${{ vars[ steps.aws_env_ids.outputs.tfvars ] }}"
+        if [[ "$REGION" == "global" ]]; then
+          NAME="$ENVNAME"
         else
-          echo "No TFVARS secret found for ${ENVNAME}, skipping."
+          NAME="${ENVNAME}_${REGION}"
         fi
+        mkdir -p "${{ inputs.working-directory }}/config"
+
+        if [[ -n "$TFVARS_SECRET" ]]; then
+          cat > "${{ inputs.working-directory }}/config/${NAME}.tfvars" <<EOF
+        ${{ secrets[ steps.aws_env_ids.outputs.tfvars ] }}
+        EOF
+          echo "Created ${{ inputs.working-directory }}/config/${NAME}.tfvars from secret"
+        elif [[ -n "$TFVARS_VAR" ]]; then
+          cat > "${{ inputs.working-directory }}/config/${NAME}.tfvars" <<EOF
+        ${{ vars[ steps.aws_env_ids.outputs.tfvars ] }}
+        EOF
+          echo "Created ${{ inputs.working-directory }}/config/${NAME}.tfvars from var"
+        else
+          echo "No TFVARS found for ${ENVNAME}, skipping."
+        fi
+        cat "${{ inputs.working-directory }}/config/${NAME}.tfvars" || echo "No tfvars file created."
         
     - name: Configure Terraform
       uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # 3.1.2
