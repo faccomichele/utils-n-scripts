@@ -115,16 +115,17 @@ jobs:
     - name: Create .tfvars for current environment
       shell: bash
       run: |
-        TFVARS_CONTENT="${{ secrets[ steps.aws_env_ids.outputs.tfvars ] }}"
+        TFVARS_CONTENT="${{ vars[ steps.aws_env_ids.outputs.tfvars ] }}"
         if [[ -n "$TFVARS_CONTENT" ]]; then
           if [[ "$REGION" == "global" ]]; then
             NAME="$ENVNAME"
           else
             NAME="${ENVNAME}_${REGION}"
           fi
-          mkdir -p config
-          printf '%s' "$TFVARS_CONTENT" > config/${NAME}.tfvars
-          echo "Created config/${NAME}.tfvars"
+          mkdir -p "${{ inputs.working-directory }}/config"
+          printf '%s\n' "$TFVARS_CONTENT" > "${{ inputs.working-directory }}/config/${NAME}.tfvars"
+          cat "${{ inputs.working-directory }}/config/${NAME}.tfvars" # TEMP ONLY
+          echo "Created ${{ inputs.working-directory }}/config/${NAME}.tfvars"
         else
           echo "No TFVARS secret found for ${ENVNAME}, skipping."
         fi
