@@ -112,33 +112,6 @@ jobs:
         }
         EOF
       
-    - name: Create .tfvars for current environment
-      shell: bash
-      run: |
-        TFVARS_SECRET="${{ secrets[ steps.aws_env_ids.outputs.tfvars ] }}"
-        TFVARS_VAR="${{ vars[ steps.aws_env_ids.outputs.tfvars ] }}"
-        if [[ "$REGION" == "global" ]]; then
-          NAME="$ENVNAME"
-        else
-          NAME="${ENVNAME}_${REGION}"
-        fi
-        mkdir -p "${{ inputs.working-directory }}/config"
-
-        if [[ -n "$TFVARS_SECRET" ]]; then
-          cat > "${{ inputs.working-directory }}/config/${NAME}.tfvars" <<EOF
-        ${{ secrets[ steps.aws_env_ids.outputs.tfvars ] }}
-        EOF
-          echo "Created ${{ inputs.working-directory }}/config/${NAME}.tfvars from secret"
-        elif [[ -n "$TFVARS_VAR" ]]; then
-          cat > "${{ inputs.working-directory }}/config/${NAME}.tfvars" <<EOF
-        ${{ vars[ steps.aws_env_ids.outputs.tfvars ] }}
-        EOF
-          echo "Created ${{ inputs.working-directory }}/config/${NAME}.tfvars from var"
-        else
-          echo "No TFVARS found for ${ENVNAME}, skipping."
-        fi
-        cat "${{ inputs.working-directory }}/config/${NAME}.tfvars" || echo "No tfvars file created."
-        
     - name: Configure Terraform
       uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # 3.1.2
       with:
@@ -160,6 +133,22 @@ jobs:
         fi
       id: workspace
 
+    - name: Create optional .tfvars for current environment
+      shell: bash
+      run: |
+        TFVARS_SECRET="${{ secrets[ steps.aws_env_ids.outputs.tfvars ] }}"
+        mkdir -p config
+
+        if [[ -n "$TFVARS_SECRET" ]]; then
+          cat > "${{ inputs.working-directory }}/config/${{ steps.workspace.outputs.name }}.tfvars" <<EOF
+        ${{ secrets[ steps.aws_env_ids.outputs.tfvars ] }}
+        EOF
+          echo "Created config/${{ steps.workspace.outputs.name }}.tfvars from secret"
+        else
+          echo "No TFVARS found for ${ENVNAME}, skipping."
+        fi
+      working-directory: ${{ inputs.working-directory }}
+
     - name: Set Terraform Workspace
       shell: bash
       run: terraform workspace select -or-create ${{ steps.workspace.outputs.name }}
@@ -174,6 +163,7 @@ jobs:
           \"Environment\": \"${{ inputs.environment }}\",
           \"Automation\": \"Terraform\",
           \"Organization\": \"${{ github.repository_owner }}\",
+          \"ManagedBy\": \"Terraform\",
           \"Region\": \"${{ inputs.region }}\",
           \"RepositoryPath\": \"${{ inputs.working-directory }}\",
           \"RepositoryFile\": \"main.tf\"
