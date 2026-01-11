@@ -11,6 +11,74 @@ This repository contains:
 
 ## GitHub Actions Workflows
 
+### Lambda Build Workflow
+
+Located in `.github/workflows/lambda-build.yml`, this is a reusable workflow for building Lambda function packages independently from Terraform operations.
+
+#### Features
+
+- Automatically detects Lambda functions in subfolders of the working directory
+- Identifies build type based on file extensions (.py for Python, .js for Node.js)
+- Builds Lambda packages concurrently using matrix strategy
+- Python: Installs dependencies from `requirements.txt` using `pip`
+- Node.js: Installs dependencies from `package.json` using `npm install --production`
+- Creates individual zip packages for each Lambda function
+- Uploads each Lambda package as a separate artifact
+- Failed builds can be retried individually without rebuilding all Lambdas
+- Minimal retention (1 day) to reduce storage costs
+
+#### Usage
+
+The Lambda Build workflow can be used standalone or combined with the Terraform Run workflow:
+
+```yaml
+name: Lambda and Terraform Deployment
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  lambda-build:
+    uses: faccomichele/utils-n-scripts/.github/workflows/lambda-build.yml@main
+    with:
+      working-directory: './terraform'
+
+  terraform-plan:
+    needs: lambda-build
+    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@main
+    with:
+      action: 'plan'
+      environment: 'dev'
+      region: 'us-west-2'
+      working-directory: './terraform'
+      download-lambda-artifacts: true
+    secrets: inherit
+```
+
+#### Input Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `working-directory` | string | No | `'.'` | Directory containing the Lambda function subfolders |
+
+#### Requirements
+
+- Lambda functions should be in separate subfolders within the working directory
+- Python Lambdas: Must contain at least one `.py` file; optional `requirements.txt` for dependencies
+- Node.js Lambdas: Must contain at least one `.js` file; optional `package.json` for dependencies
+- Each Lambda subfolder will be packaged into `<subfolder-name>.zip`
+
+#### How It Works
+
+1. **Detection**: Scans all subfolders in the working directory
+2. **Classification**: Identifies build type based on file extensions
+3. **Matrix Build**: Builds all Lambdas concurrently (fail-fast: false)
+4. **Packaging**: Creates zip files with dependencies included
+5. **Upload**: Each Lambda package uploaded as `lambda-<name>-<run-id>`
+
 ### Terraform Run Workflow
 
 Located in `.github/workflows/terraform-run.yml`, this is a reusable workflow for running Terraform operations on AWS infrastructure.
@@ -24,6 +92,8 @@ Located in `.github/workflows/terraform-run.yml`, this is a reusable workflow fo
 - Integration with AWS IAM roles via OIDC
 - Automatic PR comments with Terraform plan summaries
 - Detailed Markdown reports in GitHub job summaries
+- Optional Lambda artifact integration (downloads pre-built Lambda packages)
+- Backward compatible: runs `setup.sh` if no artifacts are provided
 
 #### Usage
 
@@ -68,6 +138,7 @@ jobs:
 | `environment` | string | No | `'dev'` | Target environment/workspace (e.g., dev, stg, prod) |
 | `region` | string | No | `'global'` | AWS region in AWS format (e.g., `'us-west-2'`) or `'global'` |
 | `working-directory` | string | No | `'.'` | Directory containing Terraform files |
+| `download-lambda-artifacts` | boolean | No | `false` | If true, downloads all Lambda artifacts from current run. If false, runs `setup.sh` (backward compatible) |
 
 #### Required Secrets
 
