@@ -240,6 +240,19 @@ jobs:
       shell: bash
       run: ./tf_out_to_md.py
       working-directory: ${{ inputs.working-directory }}
+
+    - name: Create JSON Output
+      if: ${{ inputs.action != 'destroy' }}
+      shell: bash
+      run: terraform output -json > tf-output.json
+      working-directory: ${{ inputs.working-directory }}
+
+    - name: Upload Terraform JSON outputs artifact
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      with:
+        name: terraform-output-${{ github.run_id }}
+        path: ${{ inputs.working-directory }}/tf-output.json
+        retention-days: 1
     
     - name: Add report to job summary
       if: always() && steps.tf_report.outcome == 'success'
