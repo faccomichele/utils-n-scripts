@@ -8,6 +8,7 @@ This repository contains:
 
 - **GitHub Actions Workflows**: Reusable workflows for common CI/CD tasks
 - **Terraform Utilities**: Scripts for processing and formatting Terraform output
+- **Examples**: Sample configurations and usage examples (see [examples/](examples/README.md))
 
 ## GitHub Actions Workflows
 

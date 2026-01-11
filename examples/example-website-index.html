@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Example Website</title>
+</head>
+<body>
+    <h1>Welcome to My Website</h1>
+    <p>This website is hosted on S3 and served through CloudFront.</p>
+    
+    <script>
+        // These placeholders will be automatically replaced during deployment
+        const config = {
+            apiEndpoint: '__api_endpoint__',
+            websiteBucket: '__website_bucket_name__',
+            cloudFrontDistribution: '__cloudfront_distribution_id__',
+            environment: '__environment_name__'
+        };
+        
+        console.log('Configuration:', config);
+        
+        // Example: Make API call using the replaced endpoint
+        fetch(config.apiEndpoint + '/api/data')
+            .then(response => response.json())
+            .then(data => console.log('API Data:', data))
+            .catch(error => console.error('Error:', error));
+    </script>
+</body>
+</html>
