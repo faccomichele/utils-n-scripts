@@ -44,9 +44,6 @@ jobs:
         
         # Find all subdirectories (lambda functions)
         for dir in */; do
-          # Skip if glob didn't match anything
-          [ -z "$dir" ] && continue
-          
           # Remove trailing slash
           dir=${dir%/}
           
@@ -110,14 +107,13 @@ jobs:
           echo "No requirements.txt found, skipping dependency installation"
         fi
         
+        # Define common exclusions
+        COMMON_EXCLUSIONS="-x .git/* -x .DS_Store -x *.log"
+        PYTHON_EXCLUSIONS="-x *.pyc -x __pycache__/*"
+        
         # Create zip file
         echo "Creating zip package..."
-        zip -r "${{ matrix.lambda.name }}.zip" . \
-          -x "*.pyc" \
-          -x "__pycache__/*" \
-          -x ".git/*" \
-          -x ".DS_Store" \
-          -x "*.log"
+        zip -r "${{ matrix.lambda.name }}.zip" . $COMMON_EXCLUSIONS $PYTHON_EXCLUSIONS
         
         echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
         ls -lh "${{ matrix.lambda.name }}.zip"
@@ -136,12 +132,12 @@ jobs:
           echo "No package.json found, skipping dependency installation"
         fi
         
+        # Define common exclusions
+        COMMON_EXCLUSIONS="-x .git/* -x .DS_Store -x *.log"
+        
         # Create zip file
         echo "Creating zip package..."
-        zip -r "${{ matrix.lambda.name }}.zip" . \
-          -x ".git/*" \
-          -x ".DS_Store" \
-          -x "*.log"
+        zip -r "${{ matrix.lambda.name }}.zip" . $COMMON_EXCLUSIONS
         
         echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
         ls -lh "${{ matrix.lambda.name }}.zip"
