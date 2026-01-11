@@ -44,24 +44,21 @@ jobs:
           # Remove trailing slash
           dir=${dir%/}
           
-          # Skip if not a directory
-          [ -d "$dir" ] || continue
-          
           # Check for Python files
           if find "$dir" -maxdepth 1 -name "*.py" -type f | grep -q .; then
             BUILD_TYPE="python"
-            HAS_LAMBDAS='true'
-            LAMBDAS=$(echo "$LAMBDAS" | jq -c ". += [{\"name\": \"$dir\", \"type\": \"$BUILD_TYPE\"}]")
-            echo "Detected Python lambda: $dir"
           # Check for Node.js files
           elif find "$dir" -maxdepth 1 -name "*.js" -type f | grep -q .; then
             BUILD_TYPE="nodejs"
-            HAS_LAMBDAS='true'
-            LAMBDAS=$(echo "$LAMBDAS" | jq -c ". += [{\"name\": \"$dir\", \"type\": \"$BUILD_TYPE\"}]")
-            echo "Detected Node.js lambda: $dir"
           else
             echo "Skipping $dir: no .py or .js files found (not implemented)"
+            continue
           fi
+          
+          # Add to matrix
+          HAS_LAMBDAS='true'
+          LAMBDAS=$(echo "$LAMBDAS" | jq -c ". += [{\"name\": \"$dir\", \"type\": \"$BUILD_TYPE\"}]")
+          echo "Detected $BUILD_TYPE lambda: $dir"
         done
         
         echo "matrix=$LAMBDAS" >> $GITHUB_OUTPUT
@@ -109,7 +106,7 @@ jobs:
         
         # Create zip file
         echo "Creating zip package..."
-        zip -r "${{ matrix.lambda.name }}.zip" . -x "*.pyc" -x "__pycache__/*" -x "*.git/*"
+        zip -r "${{ matrix.lambda.name }}.zip" . -x "*.pyc" -x "__pycache__/*" -x ".git/*"
         
         echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
         ls -lh "${{ matrix.lambda.name }}.zip"
@@ -130,7 +127,7 @@ jobs:
         
         # Create zip file
         echo "Creating zip package..."
-        zip -r "${{ matrix.lambda.name }}.zip" . -x "*.git/*"
+        zip -r "${{ matrix.lambda.name }}.zip" . -x ".git/*"
         
         echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
         ls -lh "${{ matrix.lambda.name }}.zip"
