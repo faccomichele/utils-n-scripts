@@ -1,0 +1,39 @@
+# Example workflow demonstrating complete Lambda + Terraform + Website deployment
+name: Complete Deployment Pipeline
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  # Step 1: Build Lambda functions
+  lambda-build:
+    uses: faccomichele/utils-n-scripts/.github/workflows/lambda-build.yml@main
+    with:
+      working-directory: './terraform'
+
+  # Step 2: Run Terraform plan on PR, apply on main
+  terraform-plan:
+    needs: lambda-build
+    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@main
+    with:
+      action: ${{ github.event_name == 'pull_request' && 'plan' || 'apply' }}
+      environment: 'dev'
+      region: 'us-west-2'
+      working-directory: './terraform'
+      download-lambda-artifacts: true
+    secrets: inherit
+
+  # Step 3: Deploy website (only on main after terraform apply)
+  deploy-website:
+    if: github.ref == 'refs/heads/main'
+    needs: terraform-plan
+    uses: faccomichele/utils-n-scripts/.github/workflows/deploy-website.yml@main
+    with:
+      environment: 'dev'
+      region: 'us-west-2'
+      working-directory: 'website'
+      terraform-artifact-name: 'terraform-output'
+    secrets: inherit
