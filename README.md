@@ -171,6 +171,152 @@ permissions:
   contents: read       # For checking out code
 ```
 
+### Deploy Website Workflow
+
+Located in `.github/workflows/deploy-website.yml`, this is a reusable workflow for deploying static website files to AWS S3 and invalidating CloudFront cache.
+
+#### Features
+
+- Downloads Terraform output artifact containing infrastructure details
+- Performs automatic replacements of `__output_name__` placeholders in files
+- Syncs website files to S3 bucket with cache control headers
+- Creates CloudFront invalidations only for changed paths
+- Integration with AWS IAM roles via OIDC
+- Multi-environment support (dev, staging, production)
+- Efficient invalidation: only invalidates paths that were actually synced
+
+#### Usage
+
+This workflow is typically used after Terraform has provisioned the infrastructure:
+
+```yaml
+name: Website Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  terraform-apply:
+    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@main
+    with:
+      action: 'apply'
+      environment: 'dev'
+      region: 'us-west-2'
+      working-directory: './terraform'
+    secrets: inherit
+
+  deploy-website:
+    needs: terraform-apply
+    uses: faccomichele/utils-n-scripts/.github/workflows/deploy-website.yml@main
+    with:
+      environment: 'dev'
+      region: 'us-west-2'
+      working-directory: 'website'
+      terraform-artifact-name: 'terraform-output'
+    secrets: inherit
+```
+
+#### Input Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `environment` | string | No | `'dev'` | Target environment/workspace (e.g., dev, stg, prod) |
+| `region` | string | No | `'global'` | AWS region in AWS format (e.g., `'us-west-2'`) or `'global'` |
+| `working-directory` | string | No | `'website'` | Directory containing the files to be synced to S3 |
+| `terraform-artifact-name` | string | No | `'terraform-output'` | Name of the Terraform output artifact (without run_id suffix) |
+
+#### Required Terraform Outputs
+
+The workflow expects the following outputs in the Terraform configuration:
+
+- `website_bucket_name`: The S3 bucket name for the website
+- `cloudfront_distribution_id`: The CloudFront distribution ID (optional, skips invalidation if not provided)
+- Any other outputs that should replace `__output_name__` placeholders in files
+
+Example Terraform outputs:
+
+```hcl
+output "website_bucket_name" {
+  value       = aws_s3_bucket.website.id
+  description = "The name of the S3 bucket for the website"
+}
+
+output "cloudfront_distribution_id" {
+  value       = aws_cloudfront_distribution.website.id
+  description = "The ID of the CloudFront distribution"
+}
+
+output "api_endpoint" {
+  value       = aws_api_gateway_deployment.api.invoke_url
+  description = "API Gateway endpoint URL"
+}
+```
+
+#### Placeholder Replacement
+
+The workflow automatically replaces placeholders in your website files before syncing to S3:
+
+- Pattern: `__output_name__`
+- Example: `__api_endpoint__` → replaced with actual API endpoint URL
+- Works on all text files in the working directory (non-binary files)
+
+Example HTML file:
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <title>My Website</title>
+</head>
+<body>
+  <script>
+    const API_URL = '__api_endpoint__';
+    const BUCKET = '__website_bucket_name__';
+  </script>
+</body>
+</html>
+```
+
+#### S3 Sync Behavior
+
+- Uses `aws s3 sync` with `--delete` flag (removes files not present locally)
+- Sets `cache-control: max-age=3600` on all uploaded files
+- Only uploads changed files (efficient)
+- Captures list of uploaded/deleted files for targeted CloudFront invalidation
+
+#### CloudFront Invalidation
+
+- Creates invalidation only for paths that were actually synced
+- If no specific paths detected, invalidates all paths (`/*`)
+- Skips invalidation if `cloudfront_distribution_id` output is not provided
+- Efficient: minimizes invalidation costs by targeting specific paths
+
+#### Required Secrets
+
+The workflow expects the following secrets to be configured in your repository:
+
+- `<ENV>_AWS_ID`: AWS Account ID for the target environment (e.g., `DEV_AWS_ID`)
+- `<ENV>_ROLE_SECRET`: Suffix for the IAM role name (e.g., `DEV_ROLE_SECRET`)
+
+#### Permissions Required
+
+The workflow needs the following permissions:
+
+```yaml
+permissions:
+  id-token: write  # For AWS OIDC authentication
+  contents: read   # For checking out code
+```
+
+#### IAM Role Requirements
+
+The AWS IAM role must have the following permissions:
+
+- `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket` on the website bucket
+- `cloudfront:CreateInvalidation` on the CloudFront distribution (if using CloudFront)
+
 ## Terraform Utilities
 
 ### Terraform Output to Markdown Converter
