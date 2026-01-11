@@ -125,10 +125,14 @@ jobs:
         
         # Create main zip file with only Python code (no dependencies, no requirements.txt)
         echo "Creating main package with code only..."
-        zip -r "${{ matrix.lambda.name }}.zip" *.py $COMMON_EXCLUSIONS $PYTHON_EXCLUSIONS
-        
-        echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
-        ls -lh "${{ matrix.lambda.name }}.zip"
+        if compgen -G "*.py" > /dev/null; then
+          zip -r "${{ matrix.lambda.name }}.zip" *.py $COMMON_EXCLUSIONS $PYTHON_EXCLUSIONS
+          echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
+          ls -lh "${{ matrix.lambda.name }}.zip"
+        else
+          echo "Error: No Python files found to package"
+          exit 1
+        fi
 
     - name: Build Node.js Lambda
       if: matrix.lambda.type == 'nodejs'
@@ -165,16 +169,18 @@ jobs:
         
         # Create main zip file with only JavaScript code (no dependencies, no package files)
         echo "Creating main package with code only..."
-        zip -r "${{ matrix.lambda.name }}.zip" *.js $COMMON_EXCLUSIONS $NODEJS_EXCLUSIONS
-        
-        echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
-        ls -lh "${{ matrix.lambda.name }}.zip"
+        if compgen -G "*.js" > /dev/null; then
+          zip -r "${{ matrix.lambda.name }}.zip" *.js $COMMON_EXCLUSIONS $NODEJS_EXCLUSIONS
+          echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
+          ls -lh "${{ matrix.lambda.name }}.zip"
+        else
+          echo "Error: No JavaScript files found to package"
+          exit 1
+        fi
 
     - name: Upload Lambda packages as artifacts
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: lambda-${{ matrix.lambda.name }}-${{ github.run_id }}
-        path: |
-          ${{ inputs.working-directory }}/${{ matrix.lambda.name }}/${{ matrix.lambda.name }}.zip
-          ${{ inputs.working-directory }}/${{ matrix.lambda.name }}/${{ matrix.lambda.name }}-layer.zip
+        path: ${{ inputs.working-directory }}/${{ matrix.lambda.name }}/${{ matrix.lambda.name }}*.zip
         retention-days: 1
