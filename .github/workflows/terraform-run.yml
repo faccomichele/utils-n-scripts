@@ -113,6 +113,7 @@ jobs:
           }
         }
         EOF
+      working-directory: ${{ inputs.working-directory }}
 
     - name: Test assume role access to S3 backend bucket
       if: ${{ env.ACTIONS_STEP_DEBUG == 'true' || env.ACTIONS_RUNNER_DEBUG == 'true' }}
@@ -146,7 +147,7 @@ jobs:
 
     - name: Init Terraform
       shell: bash
-      run: terraform init
+      run: terraform init --upgrade --reconfigure
       working-directory: ${{ inputs.working-directory }}
 
     - name: Set Terraform Workspace Name
@@ -201,6 +202,7 @@ jobs:
       id: tags_var
 
     - name: Set Terraform Options
+      id: options
       shell: bash
       run: |
         case "${{ inputs.action }}" in
@@ -224,7 +226,6 @@ jobs:
         fi
         echo "config-file=$CONFIGFILE" | tee -a $GITHUB_OUTPUT
       working-directory: ${{ inputs.working-directory }}
-      id: options
 
     - name: Run Terraform ${{ steps.options.outputs.action }}
       id: tf_run
@@ -252,7 +253,8 @@ jobs:
     - name: Add report to job summary
       if: always() && steps.tf_report.outcome == 'success'
       shell: bash
-      run: cat ${{ inputs.working-directory }}/tf-report.md >> $GITHUB_STEP_SUMMARY
+      run: cat tf-report.md >> $GITHUB_STEP_SUMMARY
+      working-directory: ${{ inputs.working-directory }}
     
     - name: Prepare Terraform output for comment
       if: always() && steps.tf_report.outcome == 'success' && github.event_name == 'pull_request'
@@ -262,7 +264,7 @@ jobs:
         ACTION="${{ inputs.action }}"
         ACTION_TITLE="$(echo ${ACTION:0:1} | tr '[:lower:]' '[:upper:]')${ACTION:1}"
         COMMENT_BODY=""
-        MD_FILE="${{ inputs.working-directory }}/tf-report.md"
+        MD_FILE="tf-report.md"
         if [[ -f "$MD_FILE" ]]; then
           # Check for errors
           ERRORS=$(grep -E '^### ❌ Error in' "$MD_FILE" || true)
@@ -290,6 +292,7 @@ jobs:
         echo "comment_body<<EOF" >> "$GITHUB_OUTPUT"
         printf '%s\n' "$COMMENT_BODY" >> "$GITHUB_OUTPUT"
         echo "EOF" >> "$GITHUB_OUTPUT"
+      working-directory: ${{ inputs.working-directory }}
       
     - name: Comment Terraform Output on PR
       if: always() && steps.tf_comment_prep.outcome == 'success' && github.event_name == 'pull_request'
