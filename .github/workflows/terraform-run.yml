@@ -59,7 +59,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
       with:
-        node-version: ${{ vars.NODE_VERSION || '20' }}
+        node-version: ${{ vars.NODE_VERSION || '24' }}
 
     - name: Run setup script if exists
       shell: bash
