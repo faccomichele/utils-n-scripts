@@ -161,6 +161,7 @@ jobs:
         aws s3 sync "${{ inputs.working-directory }}/" "s3://$BUCKET/" \
           --delete \
           --cache-control "max-age=3600" \
+          --no-progress \
           2>&1 | tee "$SYNC_OUTPUT"
         
         # Extract the paths that were uploaded/deleted
