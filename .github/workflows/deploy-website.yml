@@ -170,8 +170,12 @@ jobs:
         CHANGED_PATHS=""
         
         if [ -f "$SYNC_OUTPUT" ]; then
-          # Extract paths from upload/delete operations
-          CHANGED_PATHS=$(grep -E "(upload:|delete:)" "$SYNC_OUTPUT" | sed -E 's/.*(upload:.*to s3:\/\/[^\/]+\/|delete: s3:\/\/[^\/]+\/)/\//' || true)
+          # Extract paths from upload operations
+          UPLOAD_PATHS=$(grep "upload:" "$SYNC_OUTPUT" | sed -E 's/.*to s3:\/\/[^\/]+//' || true)
+          # Extract paths from delete operations
+          DELETE_PATHS=$(grep "delete:" "$SYNC_OUTPUT" | sed -E 's/.*delete: s3:\/\/[^\/]+//' || true)
+          # Combine both
+          CHANGED_PATHS=$(printf "%s\n%s" "$UPLOAD_PATHS" "$DELETE_PATHS" | grep -v '^$' || true)
         fi
         
         # If no specific paths were found, default to invalidating everything
