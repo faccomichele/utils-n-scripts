@@ -73,7 +73,7 @@ jobs:
         path: ${{ inputs.working-directory }}/lambda
 
     - name: Run setup script if no artifacts provided
-      if: '!inputs.lambda-artifact-name'
+      if: ${{ !inputs.lambda-artifact-name }}
       shell: bash
       run: |
         if [ -f "./scripts/setup.sh" ]; then
