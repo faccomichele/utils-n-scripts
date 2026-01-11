@@ -4,63 +4,140 @@ on:
   workflow_call:
     inputs:
       working-directory:
-        description: 'The location containing the terraform related files with scripts/setup.sh'
+        description: 'The location containing the lambda subfolders to build'
         type: string
         default: "."
-    outputs:
-      artifact-name:
-        description: "Name of the artifact containing lambda zip files"
-        value: ${{ jobs.lambda_build.outputs.artifact-name }}
 
 permissions:
   contents: read
 
 jobs:
-  lambda_build:
-    name: Build Lambda Packages (${{ inputs.working-directory }})
+  detect_lambdas:
+    name: Detect Lambda Functions
     runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
     outputs:
-      artifact-name: ${{ steps.artifact_info.outputs.name }}
+      matrix: ${{ steps.detect.outputs.matrix }}
+      has_lambdas: ${{ steps.detect.outputs.has_lambdas }}
+    steps:
+    - name: Get source code locally from this repo
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+    - name: Detect Lambda functions and build types
+      id: detect
+      shell: bash
+      run: |
+        LAMBDAS='[]'
+        HAS_LAMBDAS='false'
+        
+        # Check if working directory exists
+        if [ ! -d "${{ inputs.working-directory }}" ]; then
+          echo "Working directory ${{ inputs.working-directory }} does not exist"
+          echo "matrix=$LAMBDAS" >> $GITHUB_OUTPUT
+          echo "has_lambdas=$HAS_LAMBDAS" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        cd "${{ inputs.working-directory }}"
+        
+        # Find all subdirectories (lambda functions)
+        for dir in */; do
+          # Remove trailing slash
+          dir=${dir%/}
+          
+          # Skip if not a directory
+          [ -d "$dir" ] || continue
+          
+          # Check for Python files
+          if find "$dir" -maxdepth 1 -name "*.py" -type f | grep -q .; then
+            BUILD_TYPE="python"
+            HAS_LAMBDAS='true'
+            LAMBDAS=$(echo "$LAMBDAS" | jq -c ". += [{\"name\": \"$dir\", \"type\": \"$BUILD_TYPE\"}]")
+            echo "Detected Python lambda: $dir"
+          # Check for Node.js files
+          elif find "$dir" -maxdepth 1 -name "*.js" -type f | grep -q .; then
+            BUILD_TYPE="nodejs"
+            HAS_LAMBDAS='true'
+            LAMBDAS=$(echo "$LAMBDAS" | jq -c ". += [{\"name\": \"$dir\", \"type\": \"$BUILD_TYPE\"}]")
+            echo "Detected Node.js lambda: $dir"
+          else
+            echo "Skipping $dir: no .py or .js files found (not implemented)"
+          fi
+        done
+        
+        echo "matrix=$LAMBDAS" >> $GITHUB_OUTPUT
+        echo "has_lambdas=$HAS_LAMBDAS" >> $GITHUB_OUTPUT
+        echo "Detected lambdas matrix: $LAMBDAS"
+
+  build_lambdas:
+    name: Build ${{ matrix.lambda.name }} (${{ matrix.lambda.type }})
+    runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
+    needs: detect_lambdas
+    if: needs.detect_lambdas.outputs.has_lambdas == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        lambda: ${{ fromJson(needs.detect_lambdas.outputs.matrix) }}
     steps:
     - name: Get source code locally from this repo
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
     - name: Setup Python
+      if: matrix.lambda.type == 'python'
       uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
       with:
         python-version: ${{ vars.PYTHON_VERSION || '3.13' }}
 
     - name: Setup Node.js
+      if: matrix.lambda.type == 'nodejs'
       uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
       with:
         node-version: ${{ vars.NODE_VERSION || '24' }}
 
-    - name: Run setup script to build lambda packages
+    - name: Build Python Lambda
+      if: matrix.lambda.type == 'python'
       shell: bash
       run: |
-        if [ -f "./scripts/setup.sh" ]; then
-          echo "Running setup.sh script to build lambda packages..."
-          chmod +x ./scripts/setup.sh
-          ./scripts/setup.sh
+        cd "${{ inputs.working-directory }}/${{ matrix.lambda.name }}"
+        
+        # Install dependencies if requirements.txt exists
+        if [ -f "requirements.txt" ]; then
+          echo "Installing Python dependencies..."
+          pip install -r requirements.txt -t .
         else
-          echo "No setup.sh script found, skipping lambda build..."
-          exit 0
+          echo "No requirements.txt found, skipping dependency installation"
         fi
-      working-directory: ${{ inputs.working-directory }}
+        
+        # Create zip file
+        echo "Creating zip package..."
+        zip -r "${{ matrix.lambda.name }}.zip" . -x "*.pyc" -x "__pycache__/*" -x "*.git/*"
+        
+        echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
+        ls -lh "${{ matrix.lambda.name }}.zip"
 
-    - name: Set artifact name
-      id: artifact_info
+    - name: Build Node.js Lambda
+      if: matrix.lambda.type == 'nodejs'
       shell: bash
       run: |
-        # Create a unique artifact name based on run details
-        ARTIFACT_NAME="lambda-packages-${{ github.run_id }}-${{ github.run_attempt }}"
-        echo "name=${ARTIFACT_NAME}" | tee -a $GITHUB_OUTPUT
-        echo "Artifact name: ${ARTIFACT_NAME}"
+        cd "${{ inputs.working-directory }}/${{ matrix.lambda.name }}"
+        
+        # Install dependencies if package.json exists
+        if [ -f "package.json" ]; then
+          echo "Installing Node.js dependencies..."
+          npm install --production
+        else
+          echo "No package.json found, skipping dependency installation"
+        fi
+        
+        # Create zip file
+        echo "Creating zip package..."
+        zip -r "${{ matrix.lambda.name }}.zip" . -x "*.git/*"
+        
+        echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
+        ls -lh "${{ matrix.lambda.name }}.zip"
 
-    - name: Upload lambda packages as artifacts
+    - name: Upload Lambda package as artifact
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f0047cd505 # v4.5.1
       with:
-        name: ${{ steps.artifact_info.outputs.name }}
-        path: ${{ inputs.working-directory }}/lambda/**/*.zip
-        if-no-files-found: ignore
+        name: lambda-${{ matrix.lambda.name }}-${{ github.run_id }}
+        path: ${{ inputs.working-directory }}/${{ matrix.lambda.name }}/${{ matrix.lambda.name }}.zip
         retention-days: 1

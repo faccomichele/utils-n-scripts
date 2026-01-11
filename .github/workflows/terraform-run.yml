@@ -19,10 +19,11 @@ on:
         description: 'The location containing the terraform related files'
         type: string
         default: "."
-      lambda-artifact-name:
-        description: 'Optional: Name of the artifact containing pre-built lambda packages. If provided, artifacts will be downloaded instead of running setup.sh'
-        type: string
+      download-lambda-artifacts:
+        description: 'Optional: If true, downloads all lambda artifacts from the current workflow run. If false, runs setup.sh (backward compatible)'
+        type: boolean
         required: false
+        default: false
 
 permissions:
   id-token: write
@@ -65,15 +66,16 @@ jobs:
       with:
         node-version: ${{ vars.NODE_VERSION || '24' }}
 
-    - name: Download lambda artifacts if provided
-      if: inputs.lambda-artifact-name
+    - name: Download lambda artifacts if requested
+      if: inputs.download-lambda-artifacts
       uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
       with:
-        name: ${{ inputs.lambda-artifact-name }}
+        pattern: lambda-*-${{ github.run_id }}
         path: ${{ inputs.working-directory }}/lambda
+        merge-multiple: true
 
-    - name: Run setup script if no artifacts provided
-      if: ${{ !inputs.lambda-artifact-name }}
+    - name: Run setup script if no artifacts requested
+      if: ${{ !inputs.download-lambda-artifacts }}
       shell: bash
       run: |
         if [ -f "./scripts/setup.sh" ]; then

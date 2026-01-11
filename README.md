@@ -17,10 +17,14 @@ Located in `.github/workflows/lambda-build.yml`, this is a reusable workflow for
 
 #### Features
 
-- Builds Lambda packages for Node.js and Python
-- Executes `scripts/setup.sh` to create zip files
-- Uploads all Lambda zip files as workflow artifacts
-- Can be invoked independently or as part of a larger workflow
+- Automatically detects Lambda functions in subfolders of the working directory
+- Identifies build type based on file extensions (.py for Python, .js for Node.js)
+- Builds Lambda packages concurrently using matrix strategy
+- Python: Installs dependencies from `requirements.txt` using `pip`
+- Node.js: Installs dependencies from `package.json` using `npm install --production`
+- Creates individual zip packages for each Lambda function
+- Uploads each Lambda package as a separate artifact
+- Failed builds can be retried individually without rebuilding all Lambdas
 - Minimal retention (1 day) to reduce storage costs
 
 #### Usage
@@ -50,7 +54,7 @@ jobs:
       environment: 'dev'
       region: 'us-west-2'
       working-directory: './terraform'
-      lambda-artifact-name: ${{ needs.lambda-build.outputs.artifact-name }}
+      download-lambda-artifacts: true
     secrets: inherit
 ```
 
@@ -58,19 +62,22 @@ jobs:
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `working-directory` | string | No | `'.'` | Directory containing the `scripts/setup.sh` file |
-
-#### Outputs
-
-| Output | Description |
-|--------|-------------|
-| `artifact-name` | Name of the uploaded artifact containing Lambda zip files |
+| `working-directory` | string | No | `'.'` | Directory containing the Lambda function subfolders |
 
 #### Requirements
 
-- A `scripts/setup.sh` file in the working directory that creates Lambda zip files
-- Lambda zip files should be created in a `lambda/` subdirectory
-- The script should work with the specified Node.js and Python versions
+- Lambda functions should be in separate subfolders within the working directory
+- Python Lambdas: Must contain at least one `.py` file; optional `requirements.txt` for dependencies
+- Node.js Lambdas: Must contain at least one `.js` file; optional `package.json` for dependencies
+- Each Lambda subfolder will be packaged into `<subfolder-name>.zip`
+
+#### How It Works
+
+1. **Detection**: Scans all subfolders in the working directory
+2. **Classification**: Identifies build type based on file extensions
+3. **Matrix Build**: Builds all Lambdas concurrently (fail-fast: false)
+4. **Packaging**: Creates zip files with dependencies included
+5. **Upload**: Each Lambda package uploaded as `lambda-<name>-<run-id>`
 
 ### Terraform Run Workflow
 
@@ -131,7 +138,7 @@ jobs:
 | `environment` | string | No | `'dev'` | Target environment/workspace (e.g., dev, stg, prod) |
 | `region` | string | No | `'global'` | AWS region in AWS format (e.g., `'us-west-2'`) or `'global'` |
 | `working-directory` | string | No | `'.'` | Directory containing Terraform files |
-| `lambda-artifact-name` | string | No | - | Optional: Name of artifact with pre-built Lambda packages. If provided, downloads artifacts instead of running `setup.sh` |
+| `download-lambda-artifacts` | boolean | No | `false` | If true, downloads all Lambda artifacts from current run. If false, runs `setup.sh` (backward compatible) |
 
 #### Required Secrets
 
