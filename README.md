@@ -21,10 +21,13 @@ Located in `.github/workflows/lambda-build.yml`, this is a reusable workflow for
 - Automatically detects Lambda functions in subfolders of the working directory
 - Identifies build type based on file extensions (.py for Python, .js for Node.js)
 - Builds Lambda packages concurrently using matrix strategy
-- Python: Installs dependencies from `requirements.txt` using `pip`
-- Node.js: Installs dependencies from `package.json` using `npm install --production`
-- Creates individual zip packages for each Lambda function
-- Uploads each Lambda package as a separate artifact
+- **Separates code from dependencies for cleaner deployment:**
+  - Main package (`<name>.zip`): Contains only the Lambda handler code (*.py or *.js files)
+  - Layer package (`<name>-layer.zip`): Contains only the dependencies (installed libraries)
+  - Package definition files (requirements.txt, package.json, package-lock.json) are excluded from both packages
+- Python: Installs dependencies from `requirements.txt` into a layer package
+- Node.js: Installs dependencies from `package.json` into a layer package
+- Uploads both main and layer packages as artifacts (layer only created if dependencies exist)
 - Failed builds can be retried individually without rebuilding all Lambdas
 - Minimal retention (1 day) to reduce storage costs
 
@@ -70,15 +73,30 @@ jobs:
 - Lambda functions should be in separate subfolders within the working directory
 - Python Lambdas: Must contain at least one `.py` file; optional `requirements.txt` for dependencies
 - Node.js Lambdas: Must contain at least one `.js` file; optional `package.json` for dependencies
-- Each Lambda subfolder will be packaged into `<subfolder-name>.zip`
+- Each Lambda subfolder will be packaged into two files:
+  - `<subfolder-name>.zip`: Main Lambda code package (handler files only)
+  - `<subfolder-name>-layer.zip`: Lambda layer package (dependencies only, created if dependencies exist)
 
 #### How It Works
 
 1. **Detection**: Scans all subfolders in the working directory
 2. **Classification**: Identifies build type based on file extensions
 3. **Matrix Build**: Builds all Lambdas concurrently (fail-fast: false)
-4. **Packaging**: Creates zip files with dependencies included
-5. **Upload**: Each Lambda package uploaded as `lambda-<name>-<run-id>`
+4. **Packaging**: Creates two separate packages:
+   - **Main package**: Contains only the Lambda handler code files (*.py or *.js)
+   - **Layer package**: Contains only dependencies installed from requirements.txt or package.json
+   - Package definition files are excluded from both packages for a clean deployment
+5. **Upload**: Both packages uploaded as artifacts under `lambda-<name>-<run-id>`
+
+**Package Structure:**
+
+- **Python Lambda:**
+  - `<name>.zip`: Contains `*.py` files only
+  - `<name>-layer.zip`: Contains packages installed via pip in `python/` directory structure (AWS Lambda layer format)
+  
+- **Node.js Lambda:**
+  - `<name>.zip`: Contains `*.js` files only
+  - `<name>-layer.zip`: Contains `node_modules/` in `nodejs/` directory structure (AWS Lambda layer format)
 
 ### Terraform Run Workflow
 
