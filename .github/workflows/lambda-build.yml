@@ -39,8 +39,14 @@ jobs:
         
         cd "${{ inputs.working-directory }}"
         
+        # Enable nullglob to handle case when no directories exist
+        shopt -s nullglob
+        
         # Find all subdirectories (lambda functions)
         for dir in */; do
+          # Skip if glob didn't match anything
+          [ -z "$dir" ] && continue
+          
           # Remove trailing slash
           dir=${dir%/}
           
@@ -106,7 +112,12 @@ jobs:
         
         # Create zip file
         echo "Creating zip package..."
-        zip -r "${{ matrix.lambda.name }}.zip" . -x "*.pyc" -x "__pycache__/*" -x ".git/*"
+        zip -r "${{ matrix.lambda.name }}.zip" . \
+          -x "*.pyc" \
+          -x "__pycache__/*" \
+          -x ".git/*" \
+          -x ".DS_Store" \
+          -x "*.log"
         
         echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
         ls -lh "${{ matrix.lambda.name }}.zip"
@@ -127,7 +138,10 @@ jobs:
         
         # Create zip file
         echo "Creating zip package..."
-        zip -r "${{ matrix.lambda.name }}.zip" . -x ".git/*"
+        zip -r "${{ matrix.lambda.name }}.zip" . \
+          -x ".git/*" \
+          -x ".DS_Store" \
+          -x "*.log"
         
         echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
         ls -lh "${{ matrix.lambda.name }}.zip"
