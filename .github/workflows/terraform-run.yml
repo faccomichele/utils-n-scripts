@@ -117,7 +117,7 @@ jobs:
     - name: Test assume role access to S3 backend bucket
       shell: bash
       run: |
-        aws sts assume-role --role-arn "arn:aws:iam::${{ secrets.CORE_TERRAFORM_ACCOUNT }}:role/terraform-core-backend-setup-TerraformStateRole-${{ secrets.CORE_TERRAFORM_ROLE_SECRET}}" --role-session-name "TestS3AccessSession" >/dev/null 2>&1 || exit 1
+        aws sts assume-role --role-arn "arn:aws:iam::${{ secrets.CORE_TERRAFORM_ACCOUNT }}:role/terraform-core-backend-setup-TerraformStateRole-${{ secrets.CORE_TERRAFORM_ROLE_SECRET}}" --role-session-name "TestS3AccessSession"
         aws sts get-caller-identity
         aws s3 ls "s3://terraform-core-aws-state-files-${ENVNAME}-${{ secrets.CORE_TERRAFORM_ACCOUNT }}" || exit 1 
       
