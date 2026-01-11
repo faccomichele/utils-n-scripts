@@ -1,0 +1,12 @@
+name: '[SELF] - Set "latest" Tag'
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: "[TAG]"
+    uses: faccomichele/utils-n-scripts/.github/workflows/create-latest-tag.yml@main

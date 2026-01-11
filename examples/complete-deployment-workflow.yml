@@ -10,14 +10,14 @@ on:
 jobs:
   # Step 1: Build Lambda functions
   lambda-build:
-    uses: faccomichele/utils-n-scripts/.github/workflows/lambda-build.yml@main
+    uses: faccomichele/utils-n-scripts/.github/workflows/lambda-build.yml@latest
     with:
       working-directory: './terraform'
 
   # Step 2: Run Terraform plan on PR, apply on main
   terraform-plan:
     needs: lambda-build
-    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@main
+    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@latest
     with:
       action: ${{ github.event_name == 'pull_request' && 'plan' || 'apply' }}
       environment: 'dev'
@@ -30,7 +30,7 @@ jobs:
   deploy-website:
     if: github.ref == 'refs/heads/main'
     needs: terraform-plan
-    uses: faccomichele/utils-n-scripts/.github/workflows/deploy-website.yml@main
+    uses: faccomichele/utils-n-scripts/.github/workflows/deploy-website.yml@latest
     with:
       environment: 'dev'
       region: 'us-west-2'

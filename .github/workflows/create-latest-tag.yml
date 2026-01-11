@@ -1,0 +1,55 @@
+name: Create/Move 'latest' Tag (reusable workflow)
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        description: 'Branch to tag as latest'
+        type: string
+        required: false
+        default: 'main'
+
+permissions:
+  contents: write
+
+jobs:
+  create_latest_tag:
+    name: Create/Move latest tag
+    runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set target branch
+        run: |
+          echo "BRANCH=${{ inputs.branch }}" >> $GITHUB_ENV
+
+      - name: Ensure branch refs and tags are fetched
+        run: |
+          git fetch origin "refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}" --tags --prune
+
+      - name: Remove remote 'latest' tag if present
+        run: |
+          if git ls-remote --tags origin | grep -q "refs/tags/latest$"; then
+            echo "Remote tag 'latest' exists — deleting"
+            git push origin :refs/tags/latest
+          else
+            echo "Remote tag 'latest' not present"
+          fi
+
+      - name: Create and push 'latest' tag on target branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TARGET_COMMIT=$(git rev-parse origin/${BRANCH})
+          if [ -z "$TARGET_COMMIT" ]; then
+            echo "Could not resolve origin/${BRANCH}; aborting"
+            exit 1
+          fi
+          echo "Tagging $TARGET_COMMIT as 'latest'"
+          git tag -f latest $TARGET_COMMIT
+          git push --force origin refs/tags/latest
+          echo "Pushed 'latest' -> $TARGET_COMMIT"

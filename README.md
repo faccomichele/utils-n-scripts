@@ -12,6 +12,8 @@ This repository contains:
 
 ## GitHub Actions Workflows
 
+**Recommendation:** Prefer referencing the `latest` workflow tag instead of the `main` branch when using the `uses` syntax (for example: `uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@latest`). Using a stable tag like `latest` reduces the chance of unexpected breakages from changes on the `main` branch.
+
 ### Lambda Build Workflow
 
 Located in `.github/workflows/lambda-build.yml`, this is a reusable workflow for building Lambda function packages independently from Terraform operations.
@@ -46,13 +48,13 @@ on:
 
 jobs:
   lambda-build:
-    uses: faccomichele/utils-n-scripts/.github/workflows/lambda-build.yml@main
+    uses: faccomichele/utils-n-scripts/.github/workflows/lambda-build.yml@latest
     with:
       working-directory: './terraform'
 
   terraform-plan:
     needs: lambda-build
-    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@main
+    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@latest
     with:
       action: 'plan'
       environment: 'dev'
@@ -129,7 +131,7 @@ on:
 
 jobs:
   terraform-plan:
-    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@main
+    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@latest
     with:
       action: 'plan'
       environment: 'dev'
@@ -140,7 +142,7 @@ jobs:
   terraform-apply:
     if: github.ref == 'refs/heads/main'
     needs: terraform-plan
-    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@main
+    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@latest
     with:
       action: 'apply'
       environment: 'dev'
@@ -218,7 +220,7 @@ on:
 
 jobs:
   terraform-apply:
-    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@main
+    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@latest
     with:
       action: 'apply'
       environment: 'dev'
@@ -228,7 +230,7 @@ jobs:
 
   deploy-website:
     needs: terraform-apply
-    uses: faccomichele/utils-n-scripts/.github/workflows/deploy-website.yml@main
+    uses: faccomichele/utils-n-scripts/.github/workflows/deploy-website.yml@latest
     with:
       environment: 'dev'
       region: 'us-west-2'
