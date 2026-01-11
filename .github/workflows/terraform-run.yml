@@ -122,7 +122,18 @@ jobs:
         read AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN <<< "$CREDS"
         export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
         aws sts get-caller-identity
-        aws s3 ls "s3://terraform-core-aws-state-files-${ENVNAME}-${{ secrets.CORE_TERRAFORM_ACCOUNT }}" || exit 1
+        BUCKET="s3://terraform-core-aws-state-files-${ENVNAME}-${{ secrets.CORE_TERRAFORM_ACCOUNT }}"
+        aws s3 ls "$BUCKET" || exit 1
+
+        # Create, get and delete a small non-empty object to validate S3 operations with assumed role
+        OBJ_KEY="${{ steps.repo_details.outputs.repo-name }}/tmp-test-${ENVNAME}-${RANDOM}.txt"
+        printf '%s\n' "temporary test object" > /tmp/tmp-test-object.txt
+        aws s3 cp /tmp/tmp-test-object.txt "$BUCKET/$OBJ_KEY" || { echo "upload failed"; exit 1; }
+        aws s3 cp "$BUCKET/$OBJ_KEY" /tmp/downloaded-test-object.txt || { echo "download failed"; exit 1; }
+        if [ ! -s /tmp/downloaded-test-object.txt ]; then echo "downloaded object is empty"; exit 1; fi
+        aws s3 rm "$BUCKET/$OBJ_KEY" || { echo "delete failed"; exit 1; }
+        rm -f /tmp/tmp-test-object.txt /tmp/downloaded-test-object.txt
+
         # Unset temporary credentials so they do not persist to later steps
         unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN || true
       
