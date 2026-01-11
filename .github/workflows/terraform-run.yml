@@ -115,6 +115,7 @@ jobs:
         EOF
 
     - name: Test assume role access to S3 backend bucket
+      if: ${{ env.ACTIONS_STEP_DEBUG == 'true' || env.ACTIONS_RUNNER_DEBUG == 'true' }}
       shell: bash
       run: |
         echo "Assuming role to access S3 backend..."
