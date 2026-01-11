@@ -101,22 +101,36 @@ jobs:
         
         # Install dependencies if requirements.txt exists
         if [ -f "requirements.txt" ]; then
-          echo "Installing Python dependencies..."
-          pip install -r requirements.txt -t .
+          echo "Installing Python dependencies to python/ directory..."
+          mkdir -p python
+          pip install -r requirements.txt -t python/
+          
+          # Create layer zip with dependencies only
+          echo "Creating layer package with dependencies..."
+          cd python && zip -r "../${{ matrix.lambda.name }}-layer.zip" . && cd .. || exit 1
+          echo "Lambda layer package created: ${{ matrix.lambda.name }}-layer.zip"
+          ls -lh "${{ matrix.lambda.name }}-layer.zip"
+          
+          # Clean up python directory
+          rm -rf python
         else
-          echo "No requirements.txt found, skipping dependency installation"
+          echo "No requirements.txt found, skipping dependency installation and layer creation"
         fi
         
         # Define common exclusions
         COMMON_EXCLUSIONS="-x .git/* -x .DS_Store -x *.log"
-        PYTHON_EXCLUSIONS="-x *.pyc -x __pycache__/*"
+        PYTHON_EXCLUSIONS="-x *.pyc -x __pycache__/* -x python/* -x requirements.txt -x node_modules/*"
         
-        # Create zip file
-        echo "Creating zip package..."
-        zip -r "${{ matrix.lambda.name }}.zip" . $COMMON_EXCLUSIONS $PYTHON_EXCLUSIONS
-        
-        echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
-        ls -lh "${{ matrix.lambda.name }}.zip"
+        # Create main zip file with only Python code (no dependencies, no requirements.txt)
+        echo "Creating main package with code only..."
+        if ls *.py 1> /dev/null 2>&1; then
+          zip "${{ matrix.lambda.name }}.zip" *.py $COMMON_EXCLUSIONS $PYTHON_EXCLUSIONS
+          echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
+          ls -lh "${{ matrix.lambda.name }}.zip"
+        else
+          echo "Error: No Python files found to package"
+          exit 1
+        fi
 
     - name: Build Node.js Lambda
       if: matrix.lambda.type == 'nodejs'
@@ -128,23 +142,41 @@ jobs:
         if [ -f "package.json" ]; then
           echo "Installing Node.js dependencies..."
           npm install --production
+          
+          # Create layer zip with dependencies only (node_modules)
+          if [ -d "node_modules" ]; then
+            echo "Creating layer package with dependencies..."
+            mkdir -p nodejs
+            cp -r node_modules nodejs/
+            cd nodejs && zip -r "../${{ matrix.lambda.name }}-layer.zip" . && cd .. || exit 1
+            echo "Lambda layer package created: ${{ matrix.lambda.name }}-layer.zip"
+            ls -lh "${{ matrix.lambda.name }}-layer.zip"
+            
+            # Clean up nodejs directory
+            rm -rf nodejs
+          fi
         else
-          echo "No package.json found, skipping dependency installation"
+          echo "No package.json found, skipping dependency installation and layer creation"
         fi
         
         # Define common exclusions
         COMMON_EXCLUSIONS="-x .git/* -x .DS_Store -x *.log"
+        NODEJS_EXCLUSIONS="-x node_modules/* -x package.json -x package-lock.json -x nodejs/*"
         
-        # Create zip file
-        echo "Creating zip package..."
-        zip -r "${{ matrix.lambda.name }}.zip" . $COMMON_EXCLUSIONS
-        
-        echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
-        ls -lh "${{ matrix.lambda.name }}.zip"
+        # Create main zip file with only JavaScript code (no dependencies, no package files)
+        echo "Creating main package with code only..."
+        if ls *.js 1> /dev/null 2>&1; then
+          zip "${{ matrix.lambda.name }}.zip" *.js $COMMON_EXCLUSIONS $NODEJS_EXCLUSIONS
+          echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
+          ls -lh "${{ matrix.lambda.name }}.zip"
+        else
+          echo "Error: No JavaScript files found to package"
+          exit 1
+        fi
 
-    - name: Upload Lambda package as artifact
+    - name: Upload Lambda packages as artifacts
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: lambda-${{ matrix.lambda.name }}-${{ github.run_id }}
-        path: ${{ inputs.working-directory }}/${{ matrix.lambda.name }}/${{ matrix.lambda.name }}.zip
+        path: ${{ inputs.working-directory }}/${{ matrix.lambda.name }}/${{ matrix.lambda.name }}*.zip
         retention-days: 1
