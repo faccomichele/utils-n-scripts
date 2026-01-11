@@ -107,9 +107,7 @@ jobs:
           
           # Create layer zip with dependencies only
           echo "Creating layer package with dependencies..."
-          cd python
-          zip -r "../${{ matrix.lambda.name }}-layer.zip" .
-          cd ..
+          cd python && zip -r "../${{ matrix.lambda.name }}-layer.zip" . && cd .. || exit 1
           echo "Lambda layer package created: ${{ matrix.lambda.name }}-layer.zip"
           ls -lh "${{ matrix.lambda.name }}-layer.zip"
           
@@ -125,7 +123,7 @@ jobs:
         
         # Create main zip file with only Python code (no dependencies, no requirements.txt)
         echo "Creating main package with code only..."
-        if compgen -G "*.py" > /dev/null; then
+        if ls *.py 1> /dev/null 2>&1; then
           zip -r "${{ matrix.lambda.name }}.zip" *.py $COMMON_EXCLUSIONS $PYTHON_EXCLUSIONS
           echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
           ls -lh "${{ matrix.lambda.name }}.zip"
@@ -149,10 +147,8 @@ jobs:
           if [ -d "node_modules" ]; then
             echo "Creating layer package with dependencies..."
             mkdir -p nodejs
-            mv node_modules nodejs/
-            cd nodejs
-            zip -r "../${{ matrix.lambda.name }}-layer.zip" .
-            cd ..
+            cp -r node_modules nodejs/
+            cd nodejs && zip -r "../${{ matrix.lambda.name }}-layer.zip" . && cd .. || exit 1
             echo "Lambda layer package created: ${{ matrix.lambda.name }}-layer.zip"
             ls -lh "${{ matrix.lambda.name }}-layer.zip"
             
@@ -169,7 +165,7 @@ jobs:
         
         # Create main zip file with only JavaScript code (no dependencies, no package files)
         echo "Creating main package with code only..."
-        if compgen -G "*.js" > /dev/null; then
+        if ls *.js 1> /dev/null 2>&1; then
           zip -r "${{ matrix.lambda.name }}.zip" *.js $COMMON_EXCLUSIONS $NODEJS_EXCLUSIONS
           echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
           ls -lh "${{ matrix.lambda.name }}.zip"
