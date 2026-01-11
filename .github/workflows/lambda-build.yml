@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   detect_lambdas:
-    name: Detect Lambda Functions
+    name: Detect Lambda Functions - (${{ inputs.working-directory }})
     runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
     outputs:
       matrix: ${{ steps.detect.outputs.matrix }}
