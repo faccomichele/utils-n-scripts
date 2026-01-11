@@ -11,6 +11,67 @@ This repository contains:
 
 ## GitHub Actions Workflows
 
+### Lambda Build Workflow
+
+Located in `.github/workflows/lambda-build.yml`, this is a reusable workflow for building Lambda function packages independently from Terraform operations.
+
+#### Features
+
+- Builds Lambda packages for Node.js and Python
+- Executes `scripts/setup.sh` to create zip files
+- Uploads all Lambda zip files as workflow artifacts
+- Can be invoked independently or as part of a larger workflow
+- Minimal retention (1 day) to reduce storage costs
+
+#### Usage
+
+The Lambda Build workflow can be used standalone or combined with the Terraform Run workflow:
+
+```yaml
+name: Lambda and Terraform Deployment
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  lambda-build:
+    uses: faccomichele/utils-n-scripts/.github/workflows/lambda-build.yml@main
+    with:
+      working-directory: './terraform'
+
+  terraform-plan:
+    needs: lambda-build
+    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@main
+    with:
+      action: 'plan'
+      environment: 'dev'
+      region: 'us-west-2'
+      working-directory: './terraform'
+      lambda-artifact-name: ${{ needs.lambda-build.outputs.artifact-name }}
+    secrets: inherit
+```
+
+#### Input Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `working-directory` | string | No | `'.'` | Directory containing the `scripts/setup.sh` file |
+
+#### Outputs
+
+| Output | Description |
+|--------|-------------|
+| `artifact-name` | Name of the uploaded artifact containing Lambda zip files |
+
+#### Requirements
+
+- A `scripts/setup.sh` file in the working directory that creates Lambda zip files
+- Lambda zip files should be created in a `lambda/` subdirectory
+- The script should work with the specified Node.js and Python versions
+
 ### Terraform Run Workflow
 
 Located in `.github/workflows/terraform-run.yml`, this is a reusable workflow for running Terraform operations on AWS infrastructure.
@@ -24,6 +85,8 @@ Located in `.github/workflows/terraform-run.yml`, this is a reusable workflow fo
 - Integration with AWS IAM roles via OIDC
 - Automatic PR comments with Terraform plan summaries
 - Detailed Markdown reports in GitHub job summaries
+- Optional Lambda artifact integration (downloads pre-built Lambda packages)
+- Backward compatible: runs `setup.sh` if no artifacts are provided
 
 #### Usage
 
@@ -68,6 +131,7 @@ jobs:
 | `environment` | string | No | `'dev'` | Target environment/workspace (e.g., dev, stg, prod) |
 | `region` | string | No | `'global'` | AWS region in AWS format (e.g., `'us-west-2'`) or `'global'` |
 | `working-directory` | string | No | `'.'` | Directory containing Terraform files |
+| `lambda-artifact-name` | string | No | - | Optional: Name of artifact with pre-built Lambda packages. If provided, downloads artifacts instead of running `setup.sh` |
 
 #### Required Secrets
 

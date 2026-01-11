@@ -1,0 +1,66 @@
+name: Lambda Build (reusable workflow)
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: 'The location containing the terraform related files with scripts/setup.sh'
+        type: string
+        default: "."
+    outputs:
+      artifact-name:
+        description: "Name of the artifact containing lambda zip files"
+        value: ${{ jobs.lambda_build.outputs.artifact-name }}
+
+permissions:
+  contents: read
+
+jobs:
+  lambda_build:
+    name: Build Lambda Packages (${{ inputs.working-directory }})
+    runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
+    outputs:
+      artifact-name: ${{ steps.artifact_info.outputs.name }}
+    steps:
+    - name: Get source code locally from this repo
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+    - name: Setup Python
+      uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+      with:
+        python-version: ${{ vars.PYTHON_VERSION || '3.13' }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+      with:
+        node-version: ${{ vars.NODE_VERSION || '24' }}
+
+    - name: Run setup script to build lambda packages
+      shell: bash
+      run: |
+        if [ -f "./scripts/setup.sh" ]; then
+          echo "Running setup.sh script to build lambda packages..."
+          chmod +x ./scripts/setup.sh
+          ./scripts/setup.sh
+        else
+          echo "No setup.sh script found, skipping lambda build..."
+          exit 0
+        fi
+      working-directory: ${{ inputs.working-directory }}
+
+    - name: Set artifact name
+      id: artifact_info
+      shell: bash
+      run: |
+        # Create a unique artifact name based on run details
+        ARTIFACT_NAME="lambda-packages-${{ github.run_id }}-${{ github.run_attempt }}"
+        echo "name=${ARTIFACT_NAME}" | tee -a $GITHUB_OUTPUT
+        echo "Artifact name: ${ARTIFACT_NAME}"
+
+    - name: Upload lambda packages as artifacts
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f0047cd505 # v4.5.1
+      with:
+        name: ${{ steps.artifact_info.outputs.name }}
+        path: ${{ inputs.working-directory }}/lambda/**/*.zip
+        if-no-files-found: ignore
+        retention-days: 1
