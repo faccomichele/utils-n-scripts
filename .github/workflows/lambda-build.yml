@@ -6,7 +6,7 @@ on:
       working-directory:
         description: 'The location containing the lambda subfolders to build'
         type: string
-        default: "."
+        default: '.'
 
 permissions:
   contents: read
@@ -143,7 +143,7 @@ jobs:
         ls -lh "${{ matrix.lambda.name }}.zip"
 
     - name: Upload Lambda package as artifact
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f0047cd505 # v4.5.1
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: lambda-${{ matrix.lambda.name }}-${{ github.run_id }}
         path: ${{ inputs.working-directory }}/${{ matrix.lambda.name }}/${{ matrix.lambda.name }}.zip

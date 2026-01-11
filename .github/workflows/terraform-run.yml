@@ -18,7 +18,7 @@ on:
       working-directory:
         description: 'The location containing the terraform related files'
         type: string
-        default: "."
+        default: '.'
       download-lambda-artifacts:
         description: 'Optional: If true, downloads all lambda artifacts from the current workflow run. If false, runs setup.sh (backward compatible)'
         type: boolean
@@ -56,36 +56,13 @@ jobs:
       run: wget -O tf_out_to_md.py https://raw.githubusercontent.com/faccomichele/utils-n-scripts/refs/heads/main/terraform/tf_out_to_md.py && chmod +x tf_out_to_md.py
       working-directory: ${{ inputs.working-directory }}
 
-    - name: Setup Python
-      uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
-      with:
-        python-version: ${{ vars.PYTHON_VERSION || '3.13' }}
-
-    - name: Setup Node.js
-      uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
-      with:
-        node-version: ${{ vars.NODE_VERSION || '24' }}
-
     - name: Download lambda artifacts if requested
       if: inputs.download-lambda-artifacts
-      uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
       with:
         pattern: lambda-*-${{ github.run_id }}
         path: ${{ inputs.working-directory }}/lambda
         merge-multiple: true
-
-    - name: Run setup script if no artifacts requested
-      if: ${{ !inputs.download-lambda-artifacts }}
-      shell: bash
-      run: |
-        if [ -f "./scripts/setup.sh" ]; then
-          echo "Running setup.sh script..."
-          chmod +x ./scripts/setup.sh
-          ./scripts/setup.sh
-        else
-          echo "No setup.sh script found, skipping..."
-        fi
-      working-directory: ${{ inputs.working-directory }}
 
     - name: Define the name of the variables to be retrieved based on the target environment
       id: aws_env_ids
