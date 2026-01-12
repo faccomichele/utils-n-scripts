@@ -107,7 +107,7 @@ jobs:
           
           # Create layer zip with dependencies only
           echo "Creating layer package with dependencies..."
-          cd python && zip -r "../${{ matrix.lambda.name }}-layer.zip" . && cd .. || exit 1
+          zip -r "${{ matrix.lambda.name }}-layer.zip" python/ || exit 1
           echo "Lambda layer package created: ${{ matrix.lambda.name }}-layer.zip"
           ls -lh "${{ matrix.lambda.name }}-layer.zip"
           
@@ -148,7 +148,7 @@ jobs:
             echo "Creating layer package with dependencies..."
             mkdir -p nodejs
             cp -r node_modules nodejs/
-            cd nodejs && zip -r "../${{ matrix.lambda.name }}-layer.zip" . && cd .. || exit 1
+            zip -r "${{ matrix.lambda.name }}-layer.zip" nodejs/ || exit 1
             echo "Lambda layer package created: ${{ matrix.lambda.name }}-layer.zip"
             ls -lh "${{ matrix.lambda.name }}-layer.zip"
             
