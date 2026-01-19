@@ -158,7 +158,7 @@ jobs:
         mkdir -p config
 
         if [[ -n "$TFVARS_SECRET" ]]; then
-          cat > "${{ inputs.working-directory }}/config/${{ steps.workspace.outputs.name }}.tfvars" <<EOF
+          cat > "config/${{ steps.workspace.outputs.name }}.tfvars" <<EOF
         ${{ secrets[ steps.aws_env_ids.outputs.tfvars ] }}
         EOF
           echo "Created config/${{ steps.workspace.outputs.name }}.tfvars from secret"
