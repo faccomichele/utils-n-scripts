@@ -122,41 +122,43 @@ jobs:
         # Navigate to the lambda directory
         if [ -n "${{ matrix.lambda.path }}" ]; then
           cd "${{ inputs.working-directory }}/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}"
+          OUT_DIR="${{ inputs.working-directory }}/${{ matrix.lambda.path }}"
         else
           cd "${{ inputs.working-directory }}/${{ matrix.lambda.folder }}"
+          OUT_DIR="${{ inputs.working-directory }}"
         fi
 
         # Use the folder name as the package filename
         NAME_ONLY="${{ matrix.lambda.folder }}"
-        
+
         # Install dependencies if requirements.txt exists
         if [ -f "requirements.txt" ]; then
           echo "Installing Python dependencies to python/ directory..."
           mkdir -p python
           pip install -r requirements.txt -t python/
-          
-          # Create layer zip with dependencies only
+
+          # Create layer zip with dependencies only in parent (output) directory
           echo "Creating layer package with dependencies..."
-          zip -r "${NAME_ONLY}-layer.zip" python/ || exit 1
-          echo "Lambda layer package created: ${NAME_ONLY}-layer.zip"
-          ls -lh "${NAME_ONLY}-layer.zip"
-          
+          zip -r "${OUT_DIR}/${NAME_ONLY}-layer.zip" python/ || exit 1
+          echo "Lambda layer package created: ${OUT_DIR}/${NAME_ONLY}-layer.zip"
+          ls -lh "${OUT_DIR}/${NAME_ONLY}-layer.zip"
+
           # Clean up python directory
           rm -rf python
         else
           echo "No requirements.txt found, skipping dependency installation and layer creation"
         fi
-        
+
         # Define common exclusions
         COMMON_EXCLUSIONS="-x .git/* -x .DS_Store -x *.log"
         PYTHON_EXCLUSIONS="-x *.pyc -x __pycache__/* -x python/* -x requirements.txt -x node_modules/*"
-        
+
         # Create main zip file with only Python code (no dependencies, no requirements.txt)
         echo "Creating main package with code only..."
         if ls *.py 1> /dev/null 2>&1; then
-          zip "${NAME_ONLY}.zip" *.py $COMMON_EXCLUSIONS $PYTHON_EXCLUSIONS
-          echo "Lambda package created: ${NAME_ONLY}.zip"
-          ls -lh "${NAME_ONLY}.zip"
+          zip "${OUT_DIR}/${NAME_ONLY}.zip" *.py $COMMON_EXCLUSIONS $PYTHON_EXCLUSIONS
+          echo "Lambda package created: ${OUT_DIR}/${NAME_ONLY}.zip"
+          ls -lh "${OUT_DIR}/${NAME_ONLY}.zip"
         else
           echo "Error: No Python files found to package"
           exit 1
@@ -169,44 +171,46 @@ jobs:
         # Navigate to the lambda directory
         if [ -n "${{ matrix.lambda.path }}" ]; then
           cd "${{ inputs.working-directory }}/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}"
+          OUT_DIR="${{ inputs.working-directory }}/${{ matrix.lambda.path }}"
         else
           cd "${{ inputs.working-directory }}/${{ matrix.lambda.folder }}"
+          OUT_DIR="${{ inputs.working-directory }}"
         fi
 
         # Use the folder name as the package filename
         NAME_ONLY="${{ matrix.lambda.folder }}"
-        
+
         # Install dependencies if package.json exists
         if [ -f "package.json" ]; then
           echo "Installing Node.js dependencies..."
           npm install --production
-          
-          # Create layer zip with dependencies only (node_modules)
+
+          # Create layer zip with dependencies only (node_modules) in parent (output) directory
           if [ -d "node_modules" ]; then
             echo "Creating layer package with dependencies..."
             mkdir -p nodejs
             cp -r node_modules nodejs/
-            zip -r "${NAME_ONLY}-layer.zip" nodejs/ || exit 1
-            echo "Lambda layer package created: ${NAME_ONLY}-layer.zip"
-            ls -lh "${NAME_ONLY}-layer.zip"
-            
+            zip -r "${OUT_DIR}/${NAME_ONLY}-layer.zip" nodejs/ || exit 1
+            echo "Lambda layer package created: ${OUT_DIR}/${NAME_ONLY}-layer.zip"
+            ls -lh "${OUT_DIR}/${NAME_ONLY}-layer.zip"
+
             # Clean up nodejs directory
             rm -rf nodejs
           fi
         else
           echo "No package.json found, skipping dependency installation and layer creation"
         fi
-        
+
         # Define common exclusions
         COMMON_EXCLUSIONS="-x .git/* -x .DS_Store -x *.log"
         NODEJS_EXCLUSIONS="-x node_modules/* -x package.json -x package-lock.json -x nodejs/*"
-        
+
         # Create main zip file with only JavaScript code (no dependencies, no package files)
         echo "Creating main package with code only..."
         if ls *.js 1> /dev/null 2>&1; then
-          zip "${NAME_ONLY}.zip" *.js $COMMON_EXCLUSIONS $NODEJS_EXCLUSIONS
-          echo "Lambda package created: ${NAME_ONLY}.zip"
-          ls -lh "${NAME_ONLY}.zip"
+          zip "${OUT_DIR}/${NAME_ONLY}.zip" *.js $COMMON_EXCLUSIONS $NODEJS_EXCLUSIONS
+          echo "Lambda package created: ${OUT_DIR}/${NAME_ONLY}.zip"
+          ls -lh "${OUT_DIR}/${NAME_ONLY}.zip"
         else
           echo "Error: No JavaScript files found to package"
           exit 1
@@ -217,32 +221,34 @@ jobs:
       run: |
         # Create a staging directory for artifacts
         mkdir -p /tmp/lambda-artifacts
-        
-        # Navigate to the lambda directory
+        # Determine where the zip files were written (parent of the handler folder)
         if [ -n "${{ matrix.lambda.path }}" ]; then
-          cd "${{ inputs.working-directory }}/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}"
-          # Create the subdirectory structure in staging
-          mkdir -p "/tmp/lambda-artifacts/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}"
-          # Copy zip files to staging with proper structure
-          if ls *.zip 1> /dev/null 2>&1; then
-            cp *.zip "/tmp/lambda-artifacts/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}/"
-          else
-            echo "Error: No zip files found to upload"
-            exit 1
-          fi
+          ZIP_DIR="${{ inputs.working-directory }}/${{ matrix.lambda.path }}"
+          STAGE_DIR="/tmp/lambda-artifacts/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}"
+          mkdir -p "$STAGE_DIR"
+          ZIP_FILE="$ZIP_DIR/${{ matrix.lambda.folder }}.zip"
+          LAYER_FILE="$ZIP_DIR/${{ matrix.lambda.folder }}-layer.zip"
         else
-          cd "${{ inputs.working-directory }}/${{ matrix.lambda.folder }}"
-          # Create the directory in staging
-          mkdir -p "/tmp/lambda-artifacts/${{ matrix.lambda.folder }}"
-          # Copy zip files to staging
-          if ls *.zip 1> /dev/null 2>&1; then
-            cp *.zip "/tmp/lambda-artifacts/${{ matrix.lambda.folder }}/"
-          else
-            echo "Error: No zip files found to upload"
-            exit 1
-          fi
+          ZIP_DIR="${{ inputs.working-directory }}"
+          STAGE_DIR="/tmp/lambda-artifacts/${{ matrix.lambda.folder }}"
+          mkdir -p "$STAGE_DIR"
+          ZIP_FILE="$ZIP_DIR/${{ matrix.lambda.folder }}.zip"
+          LAYER_FILE="$ZIP_DIR/${{ matrix.lambda.folder }}-layer.zip"
         fi
-        
+
+        # Copy package zip
+        if [ -f "$ZIP_FILE" ]; then
+          cp "$ZIP_FILE" "$STAGE_DIR/"
+        else
+          echo "Error: No zip file found to upload at $ZIP_FILE"
+          exit 1
+        fi
+
+        # Copy layer zip if present
+        if [ -f "$LAYER_FILE" ]; then
+          cp "$LAYER_FILE" "$STAGE_DIR/"
+        fi
+
         echo "Artifacts prepared in /tmp/lambda-artifacts"
         find /tmp/lambda-artifacts -name "*.zip" -ls
 
