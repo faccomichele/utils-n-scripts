@@ -165,7 +165,7 @@ jobs:
 
         if [[ -n "$TFVARS_SECRET" ]]; then
           cat > "config/${{ steps.workspace.outputs.name }}.tfvars" <<EOF
-        ${{ secrets[ steps.aws_env_ids.outputs.tfvars ] }}
+        $TFVARS_SECRET
         EOF
           echo "Created config/${{ steps.workspace.outputs.name }}.tfvars from secret"
         else
