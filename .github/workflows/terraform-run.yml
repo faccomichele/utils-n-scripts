@@ -149,7 +149,8 @@ jobs:
           echo "varfile=${ENVNAME^^}_TF_VARS" | tee -a $GITHUB_OUTPUT
         else
           echo "name=${ENVNAME}_${REGION}" | tee -a $GITHUB_OUTPUT
-          echo "varfile=${ENVNAME^^}_${REGION^^}_TF_VARS" | tee -a $GITHUB_OUTPUT
+          REGION_UNDERSCORE=${REGION//-/_}
+          echo "varfile=${ENVNAME^^}_${REGION_UNDERSCORE^^}_TF_VARS" | tee -a $GITHUB_OUTPUT
         fi
       id: workspace
 
