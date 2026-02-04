@@ -259,6 +259,6 @@ jobs:
     - name: Upload Lambda packages as artifacts
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
-        name: lambda-${{ matrix.lambda.name }}-${{ github.run_id }}
+        name: lambda-${{ matrix.lambda.path || 'root' }}-${{ matrix.lambda.folder }}-${{ github.run_id }}
         path: ${{ inputs.working-directory }}/**/*.zip
         retention-days: 1
