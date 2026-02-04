@@ -41,23 +41,30 @@ jobs:
         
         # Enable nullglob to handle case when no directories exist
         shopt -s nullglob
-        
-        # Find all subdirectories (lambda functions)
-        for dir in */; do
-          # Remove trailing slash
+
+        # Find all subdirectories (lambda functions) one level deep as well
+        for dir in */ */*/; do
+          # Normalize and remove trailing slash
           dir=${dir%/}
-          
-          # Check for Python files
+
+          # Skip if not a directory (the glob may produce non-dir entries)
+          if [ ! -d "$dir" ]; then
+            continue
+          fi
+
+          # Check for Python files directly under the directory
           if find "$dir" -maxdepth 1 -name "*.py" -type f | grep -q .; then
             BUILD_TYPE="python"
-          # Check for Node.js files
+          # Check for Node.js files directly under the directory
           elif find "$dir" -maxdepth 1 -name "*.js" -type f | grep -q .; then
             BUILD_TYPE="nodejs"
           else
-            echo "Skipping $dir: no .py or .js files found (not implemented)"
+            # No direct lambda files in this directory; skip (this allows
+            # parent directories like "routes/" to be skipped while
+            # "routes/function1/" is still discovered via the */*/ glob)
             continue
           fi
-          
+
           # Add to matrix
           HAS_LAMBDAS='true'
           LAMBDAS=$(echo "$LAMBDAS" | jq -c ". += [{\"name\": \"$dir\", \"type\": \"$BUILD_TYPE\"}]")
