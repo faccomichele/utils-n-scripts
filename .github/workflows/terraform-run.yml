@@ -157,16 +157,24 @@ jobs:
     - name: Create optional .tfvars for current environment
       shell: bash
       run: |
-        TFVARS_SECRET="${{ secrets[ steps.aws_env_ids.outputs.tfvars ] }}"
+        # Read the secret into a variable while preserving newlines using a heredoc
+        TFVARS_SECRET=$(cat <<'TFVARS_SECRET_EOF'
+        ${{ secrets[ steps.aws_env_ids.outputs.tfvars ] }}
+        TFVARS_SECRET_EOF
+        )
         if [[ -z "$TFVARS_SECRET" ]]; then
-          TFVARS_SECRET="${{ secrets[ steps.workspace.outputs.varfile ] }}"
+          TFVARS_SECRET=$(cat <<'TFVARS_SECRET_EOF'
+        ${{ secrets[ steps.workspace.outputs.varfile ] }}
+        TFVARS_SECRET_EOF
+        )
         fi
+
         mkdir -p config
 
         if [[ -n "$TFVARS_SECRET" ]]; then
-          cat > "config/${{ steps.workspace.outputs.name }}.tfvars" <<EOF
+          cat > "config/${{ steps.workspace.outputs.name }}.tfvars" <<'TFVARS_SECRET_EOF'
         $TFVARS_SECRET
-        EOF
+        TFVARS_SECRET_EOF
           echo "Created config/${{ steps.workspace.outputs.name }}.tfvars from secret"
         else
           echo "No TFVARS found for ${ENVNAME}, skipping."
