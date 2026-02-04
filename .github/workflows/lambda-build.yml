@@ -119,13 +119,11 @@ jobs:
       if: matrix.lambda.type == 'python'
       shell: bash
       run: |
-        # Navigate to the lambda directory
+        # Navigate to the lambda directory (create zips here, then move them up one level)
         if [ -n "${{ matrix.lambda.path }}" ]; then
           cd "${{ inputs.working-directory }}/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}"
-          OUT_DIR="${{ inputs.working-directory }}/${{ matrix.lambda.path }}"
         else
           cd "${{ inputs.working-directory }}/${{ matrix.lambda.folder }}"
-          OUT_DIR="${{ inputs.working-directory }}"
         fi
 
         # Use the folder name as the package filename
@@ -137,11 +135,13 @@ jobs:
           mkdir -p python
           pip install -r requirements.txt -t python/
 
-          # Create layer zip with dependencies only in parent (output) directory
+          # Create layer zip with dependencies only in current directory
           echo "Creating layer package with dependencies..."
-          zip -r "${OUT_DIR}/${NAME_ONLY}-layer.zip" python/ || exit 1
-          echo "Lambda layer package created: ${OUT_DIR}/${NAME_ONLY}-layer.zip"
-          ls -lh "${OUT_DIR}/${NAME_ONLY}-layer.zip"
+          zip -r "${NAME_ONLY}-layer.zip" python/ || exit 1
+          # Move the layer zip up one level (to parent folder)
+          mv "${NAME_ONLY}-layer.zip" "../${NAME_ONLY}-layer.zip"
+          echo "Lambda layer package moved to parent: ../${NAME_ONLY}-layer.zip"
+          ls -lh "../${NAME_ONLY}-layer.zip" || true
 
           # Clean up python directory
           rm -rf python
@@ -156,9 +156,11 @@ jobs:
         # Create main zip file with only Python code (no dependencies, no requirements.txt)
         echo "Creating main package with code only..."
         if ls *.py 1> /dev/null 2>&1; then
-          zip "${OUT_DIR}/${NAME_ONLY}.zip" *.py $COMMON_EXCLUSIONS $PYTHON_EXCLUSIONS
-          echo "Lambda package created: ${OUT_DIR}/${NAME_ONLY}.zip"
-          ls -lh "${OUT_DIR}/${NAME_ONLY}.zip"
+          zip "${NAME_ONLY}.zip" *.py $COMMON_EXCLUSIONS $PYTHON_EXCLUSIONS
+          # Move the package zip up one level (to parent folder)
+          mv "${NAME_ONLY}.zip" "../${NAME_ONLY}.zip"
+          echo "Lambda package moved to parent: ../${NAME_ONLY}.zip"
+          ls -lh "../${NAME_ONLY}.zip"
         else
           echo "Error: No Python files found to package"
           exit 1
@@ -168,13 +170,11 @@ jobs:
       if: matrix.lambda.type == 'nodejs'
       shell: bash
       run: |
-        # Navigate to the lambda directory
+        # Navigate to the lambda directory (create zips here, then move them up one level)
         if [ -n "${{ matrix.lambda.path }}" ]; then
           cd "${{ inputs.working-directory }}/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}"
-          OUT_DIR="${{ inputs.working-directory }}/${{ matrix.lambda.path }}"
         else
           cd "${{ inputs.working-directory }}/${{ matrix.lambda.folder }}"
-          OUT_DIR="${{ inputs.working-directory }}"
         fi
 
         # Use the folder name as the package filename
@@ -185,14 +185,16 @@ jobs:
           echo "Installing Node.js dependencies..."
           npm install --production
 
-          # Create layer zip with dependencies only (node_modules) in parent (output) directory
+          # Create layer zip with dependencies only (node_modules) in current directory
           if [ -d "node_modules" ]; then
             echo "Creating layer package with dependencies..."
             mkdir -p nodejs
             cp -r node_modules nodejs/
-            zip -r "${OUT_DIR}/${NAME_ONLY}-layer.zip" nodejs/ || exit 1
-            echo "Lambda layer package created: ${OUT_DIR}/${NAME_ONLY}-layer.zip"
-            ls -lh "${OUT_DIR}/${NAME_ONLY}-layer.zip"
+            zip -r "${NAME_ONLY}-layer.zip" nodejs/ || exit 1
+            # Move the layer zip up one level (to parent folder)
+            mv "${NAME_ONLY}-layer.zip" "../${NAME_ONLY}-layer.zip"
+            echo "Lambda layer package moved to parent: ../${NAME_ONLY}-layer.zip"
+            ls -lh "../${NAME_ONLY}-layer.zip" || true
 
             # Clean up nodejs directory
             rm -rf nodejs
@@ -208,9 +210,11 @@ jobs:
         # Create main zip file with only JavaScript code (no dependencies, no package files)
         echo "Creating main package with code only..."
         if ls *.js 1> /dev/null 2>&1; then
-          zip "${OUT_DIR}/${NAME_ONLY}.zip" *.js $COMMON_EXCLUSIONS $NODEJS_EXCLUSIONS
-          echo "Lambda package created: ${OUT_DIR}/${NAME_ONLY}.zip"
-          ls -lh "${OUT_DIR}/${NAME_ONLY}.zip"
+          zip "${NAME_ONLY}.zip" *.js $COMMON_EXCLUSIONS $NODEJS_EXCLUSIONS
+          # Move the package zip up one level (to parent folder)
+          mv "${NAME_ONLY}.zip" "../${NAME_ONLY}.zip"
+          echo "Lambda package moved to parent: ../${NAME_ONLY}.zip"
+          ls -lh "../${NAME_ONLY}.zip"
         else
           echo "Error: No JavaScript files found to package"
           exit 1
