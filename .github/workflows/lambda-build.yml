@@ -55,9 +55,13 @@ jobs:
           # Check for Python files directly under the directory
           if find "$dir" -maxdepth 1 -name "*.py" -type f | grep -q .; then
             BUILD_TYPE="python"
+            # Find the first Python file as handler
+            HANDLER_FILE=$(find "$dir" -maxdepth 1 -name "*.py" -type f -print0 | head -z -n 1 | xargs -0 basename)
           # Check for Node.js files directly under the directory
           elif find "$dir" -maxdepth 1 -name "*.js" -type f | grep -q .; then
             BUILD_TYPE="nodejs"
+            # Find the first JavaScript file as handler
+            HANDLER_FILE=$(find "$dir" -maxdepth 1 -name "*.js" -type f -print0 | head -z -n 1 | xargs -0 basename)
           else
             # No direct lambda files in this directory; skip (this allows
             # parent directories like "routes/" to be skipped while
@@ -65,10 +69,21 @@ jobs:
             continue
           fi
 
-          # Add to matrix
+          # Extract path and folder components
+          # If dir contains a slash, split it; otherwise path is empty
+          if [[ "$dir" == */* ]]; then
+            LAMBDA_PATH=$(dirname "$dir")
+            LAMBDA_FOLDER=$(basename "$dir")
+          else
+            LAMBDA_PATH=""
+            LAMBDA_FOLDER="$dir"
+          fi
+
+          # Add to matrix with new structure
+          # Note: handler field is included for documentation and potential future use (e.g., validation, display purposes)
           HAS_LAMBDAS='true'
-          LAMBDAS=$(echo "$LAMBDAS" | jq -c ". += [{\"name\": \"$dir\", \"type\": \"$BUILD_TYPE\"}]")
-          echo "Detected $BUILD_TYPE lambda: $dir"
+          LAMBDAS=$(echo "$LAMBDAS" | jq -c ". += [{\"path\": \"$LAMBDA_PATH\", \"folder\": \"$LAMBDA_FOLDER\", \"handler\": \"$HANDLER_FILE\", \"type\": \"$BUILD_TYPE\"}]")
+          echo "Detected $BUILD_TYPE lambda: path='$LAMBDA_PATH', folder='$LAMBDA_FOLDER', handler='$HANDLER_FILE'"
         done
         
         echo "matrix=$LAMBDAS" >> $GITHUB_OUTPUT
@@ -76,7 +91,7 @@ jobs:
         echo "Detected lambdas matrix: $LAMBDAS"
 
   build_lambdas:
-    name: Build ${{ matrix.lambda.name }} (${{ matrix.lambda.type }})
+    name: Build ${{ matrix.lambda.path }}${{ matrix.lambda.path != '' && '/' || '' }}${{ matrix.lambda.folder }} (${{ matrix.lambda.type }})
     runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
     needs: detect_lambdas
     if: needs.detect_lambdas.outputs.has_lambdas == 'true'
@@ -104,10 +119,15 @@ jobs:
       if: matrix.lambda.type == 'python'
       shell: bash
       run: |
-        cd "${{ inputs.working-directory }}/${{ matrix.lambda.name }}"
+        # Navigate to the lambda directory
+        if [ -n "${{ matrix.lambda.path }}" ]; then
+          cd "${{ inputs.working-directory }}/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}"
+        else
+          cd "${{ inputs.working-directory }}/${{ matrix.lambda.folder }}"
+        fi
 
-        # Use only the last path segment as the package filename (strip directories)
-        NAME_ONLY=$(basename "${{ matrix.lambda.name }}")
+        # Use the folder name as the package filename
+        NAME_ONLY="${{ matrix.lambda.folder }}"
         
         # Install dependencies if requirements.txt exists
         if [ -f "requirements.txt" ]; then
@@ -146,10 +166,15 @@ jobs:
       if: matrix.lambda.type == 'nodejs'
       shell: bash
       run: |
-        cd "${{ inputs.working-directory }}/${{ matrix.lambda.name }}"
+        # Navigate to the lambda directory
+        if [ -n "${{ matrix.lambda.path }}" ]; then
+          cd "${{ inputs.working-directory }}/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}"
+        else
+          cd "${{ inputs.working-directory }}/${{ matrix.lambda.folder }}"
+        fi
 
-        # Use only the last path segment as the package filename (strip directories)
-        NAME_ONLY=$(basename "${{ matrix.lambda.name }}")
+        # Use the folder name as the package filename
+        NAME_ONLY="${{ matrix.lambda.folder }}"
         
         # Install dependencies if package.json exists
         if [ -f "package.json" ]; then
@@ -187,9 +212,43 @@ jobs:
           exit 1
         fi
 
+    - name: Prepare artifacts for upload
+      shell: bash
+      run: |
+        # Create a staging directory for artifacts
+        mkdir -p /tmp/lambda-artifacts
+        
+        # Navigate to the lambda directory
+        if [ -n "${{ matrix.lambda.path }}" ]; then
+          cd "${{ inputs.working-directory }}/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}"
+          # Create the subdirectory structure in staging
+          mkdir -p "/tmp/lambda-artifacts/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}"
+          # Copy zip files to staging with proper structure
+          if ls *.zip 1> /dev/null 2>&1; then
+            cp *.zip "/tmp/lambda-artifacts/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}/"
+          else
+            echo "Error: No zip files found to upload"
+            exit 1
+          fi
+        else
+          cd "${{ inputs.working-directory }}/${{ matrix.lambda.folder }}"
+          # Create the directory in staging
+          mkdir -p "/tmp/lambda-artifacts/${{ matrix.lambda.folder }}"
+          # Copy zip files to staging
+          if ls *.zip 1> /dev/null 2>&1; then
+            cp *.zip "/tmp/lambda-artifacts/${{ matrix.lambda.folder }}/"
+          else
+            echo "Error: No zip files found to upload"
+            exit 1
+          fi
+        fi
+        
+        echo "Artifacts prepared in /tmp/lambda-artifacts"
+        find /tmp/lambda-artifacts -name "*.zip" -ls
+
     - name: Upload Lambda packages as artifacts
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
-        name: lambda-${{ matrix.lambda.name }}-${{ github.run_id }}
-        path: ${{ inputs.working-directory }}/${{ matrix.lambda.name }}/*.zip
+        name: lambda-${{ matrix.lambda.path != '' && format('{0}-', matrix.lambda.path) || '' }}${{ matrix.lambda.folder }}-${{ github.run_id }}
+        path: /tmp/lambda-artifacts/
         retention-days: 1
