@@ -239,5 +239,5 @@ jobs:
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: lambda-${{ matrix.lambda.path != '' && format('{0}-', matrix.lambda.path) || '' }}${{ matrix.lambda.folder }}-${{ github.run_id }}
-        path: /tmp/lambda-artifacts/**/*.zip
+        path: /tmp/lambda-artifacts/
         retention-days: 1
