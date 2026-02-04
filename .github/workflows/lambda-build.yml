@@ -105,6 +105,9 @@ jobs:
       shell: bash
       run: |
         cd "${{ inputs.working-directory }}/${{ matrix.lambda.name }}"
+
+        # Use only the last path segment as the package filename (strip directories)
+        NAME_ONLY=$(basename "${{ matrix.lambda.name }}")
         
         # Install dependencies if requirements.txt exists
         if [ -f "requirements.txt" ]; then
@@ -114,9 +117,9 @@ jobs:
           
           # Create layer zip with dependencies only
           echo "Creating layer package with dependencies..."
-          zip -r "${{ matrix.lambda.name }}-layer.zip" python/ || exit 1
-          echo "Lambda layer package created: ${{ matrix.lambda.name }}-layer.zip"
-          ls -lh "${{ matrix.lambda.name }}-layer.zip"
+          zip -r "${NAME_ONLY}-layer.zip" python/ || exit 1
+          echo "Lambda layer package created: ${NAME_ONLY}-layer.zip"
+          ls -lh "${NAME_ONLY}-layer.zip"
           
           # Clean up python directory
           rm -rf python
@@ -131,9 +134,9 @@ jobs:
         # Create main zip file with only Python code (no dependencies, no requirements.txt)
         echo "Creating main package with code only..."
         if ls *.py 1> /dev/null 2>&1; then
-          zip "${{ matrix.lambda.name }}.zip" *.py $COMMON_EXCLUSIONS $PYTHON_EXCLUSIONS
-          echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
-          ls -lh "${{ matrix.lambda.name }}.zip"
+          zip "${NAME_ONLY}.zip" *.py $COMMON_EXCLUSIONS $PYTHON_EXCLUSIONS
+          echo "Lambda package created: ${NAME_ONLY}.zip"
+          ls -lh "${NAME_ONLY}.zip"
         else
           echo "Error: No Python files found to package"
           exit 1
@@ -144,6 +147,9 @@ jobs:
       shell: bash
       run: |
         cd "${{ inputs.working-directory }}/${{ matrix.lambda.name }}"
+
+        # Use only the last path segment as the package filename (strip directories)
+        NAME_ONLY=$(basename "${{ matrix.lambda.name }}")
         
         # Install dependencies if package.json exists
         if [ -f "package.json" ]; then
@@ -155,9 +161,9 @@ jobs:
             echo "Creating layer package with dependencies..."
             mkdir -p nodejs
             cp -r node_modules nodejs/
-            zip -r "${{ matrix.lambda.name }}-layer.zip" nodejs/ || exit 1
-            echo "Lambda layer package created: ${{ matrix.lambda.name }}-layer.zip"
-            ls -lh "${{ matrix.lambda.name }}-layer.zip"
+            zip -r "${NAME_ONLY}-layer.zip" nodejs/ || exit 1
+            echo "Lambda layer package created: ${NAME_ONLY}-layer.zip"
+            ls -lh "${NAME_ONLY}-layer.zip"
             
             # Clean up nodejs directory
             rm -rf nodejs
@@ -173,9 +179,9 @@ jobs:
         # Create main zip file with only JavaScript code (no dependencies, no package files)
         echo "Creating main package with code only..."
         if ls *.js 1> /dev/null 2>&1; then
-          zip "${{ matrix.lambda.name }}.zip" *.js $COMMON_EXCLUSIONS $NODEJS_EXCLUSIONS
-          echo "Lambda package created: ${{ matrix.lambda.name }}.zip"
-          ls -lh "${{ matrix.lambda.name }}.zip"
+          zip "${NAME_ONLY}.zip" *.js $COMMON_EXCLUSIONS $NODEJS_EXCLUSIONS
+          echo "Lambda package created: ${NAME_ONLY}.zip"
+          ls -lh "${NAME_ONLY}.zip"
         else
           echo "Error: No JavaScript files found to package"
           exit 1
@@ -184,6 +190,6 @@ jobs:
     - name: Upload Lambda packages as artifacts
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
-        name: lambda-${{ matrix.lambda.name }}-${{ github.run_id }}
-        path: ${{ inputs.working-directory }}/${{ matrix.lambda.name }}/${{ matrix.lambda.name }}*.zip
+        name: lambda-${{ replace(matrix.lambda.name, '/', '-') }}-${{ github.run_id }}
+        path: ${{ inputs.working-directory }}/${{ matrix.lambda.name }}/*.zip
         retention-days: 1
