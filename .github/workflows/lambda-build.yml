@@ -56,12 +56,12 @@ jobs:
           if find "$dir" -maxdepth 1 -name "*.py" -type f | grep -q .; then
             BUILD_TYPE="python"
             # Find the first Python file as handler
-            HANDLER_FILE=$(find "$dir" -maxdepth 1 -name "*.py" -type f | head -n 1 | xargs basename)
+            HANDLER_FILE=$(find "$dir" -maxdepth 1 -name "*.py" -type f -print0 | head -z -n 1 | xargs -0 basename)
           # Check for Node.js files directly under the directory
           elif find "$dir" -maxdepth 1 -name "*.js" -type f | grep -q .; then
             BUILD_TYPE="nodejs"
             # Find the first JavaScript file as handler
-            HANDLER_FILE=$(find "$dir" -maxdepth 1 -name "*.js" -type f | head -n 1 | xargs basename)
+            HANDLER_FILE=$(find "$dir" -maxdepth 1 -name "*.js" -type f -print0 | head -z -n 1 | xargs -0 basename)
           else
             # No direct lambda files in this directory; skip (this allows
             # parent directories like "routes/" to be skipped while
@@ -80,6 +80,7 @@ jobs:
           fi
 
           # Add to matrix with new structure
+          # Note: handler field is included for documentation and potential future use (e.g., validation, display purposes)
           HAS_LAMBDAS='true'
           LAMBDAS=$(echo "$LAMBDAS" | jq -c ". += [{\"path\": \"$LAMBDA_PATH\", \"folder\": \"$LAMBDA_FOLDER\", \"handler\": \"$HANDLER_FILE\", \"type\": \"$BUILD_TYPE\"}]")
           echo "Detected $BUILD_TYPE lambda: path='$LAMBDA_PATH', folder='$LAMBDA_FOLDER', handler='$HANDLER_FILE'"
@@ -223,13 +224,23 @@ jobs:
           # Create the subdirectory structure in staging
           mkdir -p "/tmp/lambda-artifacts/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}"
           # Copy zip files to staging with proper structure
-          cp *.zip "/tmp/lambda-artifacts/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}/"
+          if ls *.zip 1> /dev/null 2>&1; then
+            cp *.zip "/tmp/lambda-artifacts/${{ matrix.lambda.path }}/${{ matrix.lambda.folder }}/"
+          else
+            echo "Error: No zip files found to upload"
+            exit 1
+          fi
         else
           cd "${{ inputs.working-directory }}/${{ matrix.lambda.folder }}"
           # Create the directory in staging
           mkdir -p "/tmp/lambda-artifacts/${{ matrix.lambda.folder }}"
           # Copy zip files to staging
-          cp *.zip "/tmp/lambda-artifacts/${{ matrix.lambda.folder }}/"
+          if ls *.zip 1> /dev/null 2>&1; then
+            cp *.zip "/tmp/lambda-artifacts/${{ matrix.lambda.folder }}/"
+          else
+            echo "Error: No zip files found to upload"
+            exit 1
+          fi
         fi
         
         echo "Artifacts prepared in /tmp/lambda-artifacts"
