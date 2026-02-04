@@ -172,9 +172,9 @@ jobs:
         mkdir -p config
 
         if [[ -n "$TFVARS_SECRET" ]]; then
-          cat > "config/${{ steps.workspace.outputs.name }}.tfvars" <<'TFVARS_SECRET_EOF'
+          cat > "config/${{ steps.workspace.outputs.name }}.tfvars" <<EOF
         $TFVARS_SECRET
-        TFVARS_SECRET_EOF
+        EOF
           echo "Created config/${{ steps.workspace.outputs.name }}.tfvars from secret"
         else
           echo "No TFVARS found for ${ENVNAME}, skipping."
