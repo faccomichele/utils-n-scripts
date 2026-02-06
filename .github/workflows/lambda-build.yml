@@ -153,12 +153,16 @@ jobs:
           pip install -r requirements.txt -t python/
 
           # Create layer zip with dependencies only in current directory
-          echo "Creating layer package with dependencies..."
-          zip -r "${NAME_ONLY}-layer.zip" python/ || exit 1
-          # Move the layer zip up one level (to parent folder)
-          mv "${NAME_ONLY}-layer.zip" "../${NAME_ONLY}-layer.zip"
-          echo "Lambda layer package moved to parent: ../${NAME_ONLY}-layer.zip"
-          ls -lh "../${NAME_ONLY}-layer.zip" || true
+          if [ -d "python" ] && [ "$(ls -A python)" ]; then
+            echo "Creating layer package with dependencies..."
+            zip -r "${NAME_ONLY}-layer.zip" python/ || exit 1
+            # Move the layer zip up one level (to parent folder)
+            mv "${NAME_ONLY}-layer.zip" "../${NAME_ONLY}-layer.zip"
+            echo "Lambda layer package moved to parent: ../${NAME_ONLY}-layer.zip"
+            ls -lh "../${NAME_ONLY}-layer.zip" || true
+          else
+            echo "Warning: python/ directory is empty or not present, skipping layer package creation"
+          fi
 
           # Clean up python directory
           rm -rf python
@@ -205,10 +209,10 @@ jobs:
         # Install dependencies if package.json exists
         if [ -f "package.json" ]; then
           echo "Installing Node.js dependencies..."
-          npm install --production
+          npm install --omit=dev
 
           # Create layer zip with dependencies only (node_modules) in current directory
-          if [ -d "node_modules" ]; then
+          if [ -d "node_modules" ] && [ "$(ls -A node_modules)" ]; then
             echo "Creating layer package with dependencies..."
             mkdir -p nodejs
             cp -r node_modules nodejs/
@@ -220,6 +224,8 @@ jobs:
 
             # Clean up nodejs directory
             rm -rf nodejs
+          else
+            echo "Warning: node_modules directory is empty or not present, skipping layer package creation"
           fi
         else
           echo "No package.json found, skipping dependency installation and layer creation"
