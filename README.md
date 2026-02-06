@@ -21,10 +21,11 @@ Located in `.github/workflows/lambda-build.yml`, this is a reusable workflow for
 #### Features
 
 - Automatically detects Lambda functions in subfolders of the working directory
-- Identifies build type based on file extensions (.py for Python, .js for Node.js)
+- Identifies build type based on file extensions (.py for Python, .js for Node.js) or dependency files (requirements.txt, package.json)
+- **Supports layer-only builds**: Folders with only `requirements.txt` or `package.json` (without handler files) will build only a layer package
 - Builds Lambda packages concurrently using matrix strategy
 - **Separates code from dependencies for cleaner deployment:**
-  - Main package (`<name>.zip`): Contains only the Lambda handler code (*.py or *.js files)
+  - Main package (`<name>.zip`): Contains only the Lambda handler code (*.py or *.js files) - created only when handler files exist
   - Layer package (`<name>-layer.zip`): Contains only the dependencies (installed libraries)
   - Package definition files (requirements.txt, package.json, package-lock.json) are excluded from both packages
 - Python: Installs dependencies from `requirements.txt` into a layer package
@@ -73,31 +74,49 @@ jobs:
 #### Requirements
 
 - Lambda functions should be in separate subfolders within the working directory
-- Python Lambdas: Must contain at least one `.py` file; optional `requirements.txt` for dependencies
-- Node.js Lambdas: Must contain at least one `.js` file; optional `package.json` for dependencies
-- Each Lambda subfolder will be packaged into two files:
-  - `<subfolder-name>.zip`: Main Lambda code package (handler files only)
-  - `<subfolder-name>-layer.zip`: Lambda layer package (dependencies only, created if dependencies exist)
+- **Python Lambdas**: 
+  - Must contain at least one `.py` file OR a `requirements.txt` file
+  - `.py` files are optional if you only need to build a layer (layer-only build)
+  - `requirements.txt` is optional for dependencies
+- **Node.js Lambdas**: 
+  - Must contain at least one `.js` file OR a `package.json` file
+  - `.js` files are optional if you only need to build a layer (layer-only build)
+  - `package.json` is optional for dependencies
+- Each Lambda subfolder will be packaged into one or two files:
+  - `<subfolder-name>.zip`: Main Lambda code package (handler files only) - created only when `.py` or `.js` files exist
+  - `<subfolder-name>-layer.zip`: Lambda layer package (dependencies only, created if `requirements.txt` or `package.json` exists)
 
 #### How It Works
 
-1. **Detection**: Scans all subfolders in the working directory
-2. **Classification**: Identifies build type based on file extensions
+1. **Detection**: Scans all subfolders in the working directory for:
+   - Python handler files (`.py`)
+   - Node.js handler files (`.js`)
+   - Python dependency files (`requirements.txt`)
+   - Node.js dependency files (`package.json`)
+2. **Classification**: Identifies build type and whether handler files are present
+   - Folders with handler files: Build both function package and layer package (if dependencies exist)
+   - Folders with only dependency files: Build layer package only (layer-only build)
 3. **Matrix Build**: Builds all Lambdas concurrently (fail-fast: false)
-4. **Packaging**: Creates two separate packages:
-   - **Main package**: Contains only the Lambda handler code files (*.py or *.js)
-   - **Layer package**: Contains only dependencies installed from requirements.txt or package.json
+4. **Packaging**: Creates packages as needed:
+   - **Main package** (if handler files exist): Contains only the Lambda handler code files (*.py or *.js)
+   - **Layer package** (if dependency files exist): Contains only dependencies installed from requirements.txt or package.json
    - Package definition files are excluded from both packages for a clean deployment
-5. **Upload**: Both packages uploaded as artifacts under `lambda-<name>-<run-id>`
+5. **Upload**: Packages uploaded as artifacts under `lambda-<name>-<run-id>`
 
 **Package Structure:**
 
-- **Python Lambda:**
+- **Python Lambda with handler:**
   - `<name>.zip`: Contains `*.py` files only
+  - `<name>-layer.zip`: Contains packages installed via pip in `python/` directory structure (AWS Lambda layer format) - created only if `requirements.txt` exists
+  
+- **Python Layer-only (no handler files):**
   - `<name>-layer.zip`: Contains packages installed via pip in `python/` directory structure (AWS Lambda layer format)
   
-- **Node.js Lambda:**
+- **Node.js Lambda with handler:**
   - `<name>.zip`: Contains `*.js` files only
+  - `<name>-layer.zip`: Contains `node_modules/` in `nodejs/` directory structure (AWS Lambda layer format) - created only if `package.json` exists
+
+- **Node.js Layer-only (no handler files):**
   - `<name>-layer.zip`: Contains `node_modules/` in `nodejs/` directory structure (AWS Lambda layer format)
 
 ### Terraform Run Workflow
