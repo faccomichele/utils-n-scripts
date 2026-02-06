@@ -93,9 +93,9 @@ jobs:
           fi
 
           # Add to matrix with new structure
-          # Note: handler field is included for documentation and potential future use (e.g., validation, display purposes)
+          # Note: handler field contains the handler filename when has_handler is true, and is empty for layer-only builds
           HAS_LAMBDAS='true'
-          LAMBDAS=$(echo "$LAMBDAS" | jq -c ". += [{\"path\": \"$LAMBDA_PATH\", \"folder\": \"$LAMBDA_FOLDER\", \"handler\": \"$HANDLER_FILE\", \"type\": \"$BUILD_TYPE\", \"has_handler\": \"$HAS_HANDLER\"}]")
+          LAMBDAS=$(echo "$LAMBDAS" | jq -c ". += [{\"path\": \"$LAMBDA_PATH\", \"folder\": \"$LAMBDA_FOLDER\", \"handler\": \"$HANDLER_FILE\", \"type\": \"$BUILD_TYPE\", \"has_handler\": $HAS_HANDLER}]")
           if [ "$HAS_HANDLER" = "true" ]; then
             echo "Detected $BUILD_TYPE lambda: path='$LAMBDA_PATH', folder='$LAMBDA_FOLDER', handler='$HANDLER_FILE'"
           else
