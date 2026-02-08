@@ -140,17 +140,29 @@ jobs:
           # Parse comma-separated build args from VARS
           IFS=',' read -ra ARGS <<< "${{ vars.DOCKER_BUILD_ARGS }}"
           for arg in "${ARGS[@]}"; do
-            BUILD_ARGS="${BUILD_ARGS} --build-arg ${arg}"
+            if [ -n "$BUILD_ARGS" ]; then
+              BUILD_ARGS="${BUILD_ARGS}"$'\n'"${arg}"
+            else
+              BUILD_ARGS="${arg}"
+            fi
           done
         fi
 
-        # Add standard build metadata
-        BUILD_ARGS="${BUILD_ARGS} --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-        BUILD_ARGS="${BUILD_ARGS} --build-arg VCS_REF=${{ github.sha }}"
-        BUILD_ARGS="${BUILD_ARGS} --build-arg VERSION=${{ github.ref_name }}"
-        BUILD_ARGS="${BUILD_ARGS} --build-arg ENVIRONMENT=${{ inputs.environment }}"
+        # Add standard build metadata with newline separation
+        if [ -n "$BUILD_ARGS" ]; then
+          BUILD_ARGS="${BUILD_ARGS}"$'\n'
+        fi
+        BUILD_ARGS="${BUILD_ARGS}BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        BUILD_ARGS="${BUILD_ARGS}"$'\n'"VCS_REF=${{ github.sha }}"
+        BUILD_ARGS="${BUILD_ARGS}"$'\n'"VERSION=${{ github.ref_name }}"
+        BUILD_ARGS="${BUILD_ARGS}"$'\n'"ENVIRONMENT=${{ inputs.environment }}"
 
-        echo "args=$BUILD_ARGS" | tee -a $GITHUB_OUTPUT
+        # Use heredoc to properly handle multiline output
+        {
+          echo "args<<EOF"
+          echo "$BUILD_ARGS"
+          echo "EOF"
+        } >> $GITHUB_OUTPUT
 
     - name: Build and push Docker image
       uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.0
