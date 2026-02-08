@@ -375,7 +375,6 @@ Located in `.github/workflows/ecr-docker-build.yml`, this is a reusable workflow
 - Image scanning enabled by default (scan on push)
 - Build arguments support via repository variables
 - Detailed build summaries in GitHub job summaries
-- Failed builds can be retried individually without rebuilding all images
 
 #### Usage
 

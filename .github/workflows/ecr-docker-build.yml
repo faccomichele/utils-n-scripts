@@ -31,6 +31,7 @@ jobs:
     outputs:
       matrix: ${{ steps.detect.outputs.matrix }}
       has_dockerfiles: ${{ steps.detect.outputs.has_dockerfiles }}
+      date_tag: ${{ steps.detect.outputs.date_tag }}
     steps:
     - name: Get source code locally from this repo
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -41,6 +42,10 @@ jobs:
       run: |
         DOCKERFILES='[]'
         HAS_DOCKERFILES='false'
+        
+        # Generate date tag once for all images in this workflow run
+        DATE_TAG=$(date -u +'%Y.%m.%d')
+        echo "date_tag=$DATE_TAG" >> $GITHUB_OUTPUT
         
         # Check if working directory exists
         if [ ! -d "${{ inputs.working-directory }}" ]; then
@@ -172,21 +177,17 @@ jobs:
       id: tags
       shell: bash
       run: |
-        # Generate date tag in YYYY.MM.DD format
-        DATE_TAG=$(date -u +'%Y.%m.%d')
+        # Use date tag from detection job to ensure consistency across all matrix builds
+        DATE_TAG="${{ needs.detect_dockerfiles.outputs.date_tag }}"
         
-        # Get commit SHA (short form)
+        # Get commit SHA (full)
         COMMIT_SHA="${{ github.sha }}"
         
         # Full image name
         FULL_IMAGE="${{ steps.ecr_info.outputs.full_image_name }}"
         
-        # Create tags
-        TAGS="${FULL_IMAGE}:latest"
-        TAGS="${TAGS},"
-        TAGS="${TAGS}${FULL_IMAGE}:${DATE_TAG}"
-        TAGS="${TAGS},"
-        TAGS="${TAGS}${FULL_IMAGE}:${COMMIT_SHA}"
+        # Create comma-separated tags list
+        TAGS="${FULL_IMAGE}:latest,${FULL_IMAGE}:${DATE_TAG},${FULL_IMAGE}:${COMMIT_SHA}"
         
         echo "tags=$TAGS" | tee -a $GITHUB_OUTPUT
         echo "date_tag=$DATE_TAG" | tee -a $GITHUB_OUTPUT
