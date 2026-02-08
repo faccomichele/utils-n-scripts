@@ -8,13 +8,11 @@ on:
       - main
 
 jobs:
-  # Build and push Docker image to ECR
+  # Build and push Docker images from subdirectories with Dockerfiles
   docker-build:
     uses: faccomichele/utils-n-scripts/.github/workflows/ecr-docker-build.yml@latest
     with:
       working-directory: '.'
-      dockerfile-path: 'Dockerfile'
-      image-name: 'my-application'
       environment: 'dev'
       region: 'us-east-1'
     secrets: inherit
@@ -25,8 +23,6 @@ jobs:
     uses: faccomichele/utils-n-scripts/.github/workflows/ecr-docker-build.yml@latest
     with:
       working-directory: '.'
-      dockerfile-path: 'Dockerfile'
-      image-name: 'my-application'
       environment: 'stg'
       region: 'us-east-1'
     secrets: inherit
@@ -38,8 +34,6 @@ jobs:
     uses: faccomichele/utils-n-scripts/.github/workflows/ecr-docker-build.yml@latest
     with:
       working-directory: '.'
-      dockerfile-path: 'Dockerfile'
-      image-name: 'my-application'
       environment: 'prod'
       region: 'us-east-1'
     secrets: inherit
