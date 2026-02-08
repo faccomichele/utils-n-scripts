@@ -363,14 +363,16 @@ Located in `.github/workflows/ecr-docker-build.yml`, this is a reusable workflow
 
 #### Features
 
+- Automatically detects Dockerfiles in subdirectories of the working directory
+- Builds Docker images concurrently using matrix strategy
+- Uses folder name as the image name for each Dockerfile
 - Builds Docker images using Docker Buildx
 - Automatically creates ECR repositories if they don't exist
-- Pushes images with multiple tags for flexible deployment
+- Pushes images with exactly three tags: `latest`, `YYYY.MM.DD`, and commit SHA
 - Integration with AWS IAM roles via OIDC
 - Multi-environment support (dev, staging, production)
 - Docker layer caching for faster builds
 - Image scanning enabled by default (scan on push)
-- Automatic tagging with commit SHA, branch name, and environment
 - Build arguments support via repository variables
 - Detailed build summaries in GitHub job summaries
 
@@ -390,24 +392,49 @@ jobs:
   docker-build:
     uses: faccomichele/utils-n-scripts/.github/workflows/ecr-docker-build.yml@latest
     with:
-      working-directory: '.'
-      dockerfile-path: 'Dockerfile'
-      image-name: 'my-application'
+      working-directory: './docker'
       environment: 'dev'
       region: 'us-east-1'
     secrets: inherit
 ```
 
+#### How It Works
+
+1. **Detection**: Scans all subdirectories in the working directory for Dockerfiles
+2. **Matrix Build**: Builds all Docker images concurrently (fail-fast: false)
+3. **Image Naming**: Uses the folder name as the image name (e.g., `my-app/` folder becomes `my-app` image)
+4. **Tagging**: Each image is pushed with exactly three tags:
+   - `latest` - Always points to the most recent build
+   - `YYYY.MM.DD` - Date-based tag (e.g., `2026.02.08`)
+   - `<commit-sha>` - Full Git commit SHA for precise version tracking
+
+#### Requirements
+
+- Docker images should be in separate subfolders within the working directory
+- Each subfolder must contain a `Dockerfile`
+- Empty subdirectories are automatically skipped
+- Each subfolder will be built as a separate Docker image named after the folder
+
+Example directory structure:
+```
+working-directory/
+├── api-service/
+│   └── Dockerfile
+├── web-frontend/
+│   └── Dockerfile
+└── worker/
+    └── Dockerfile
+```
+
+This will create three ECR images: `api-service`, `web-frontend`, and `worker`, each with tags `latest`, `YYYY.MM.DD`, and `<commit-sha>`.
+
 #### Input Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `working-directory` | string | No | `'.'` | Directory containing the Dockerfile and build context |
-| `dockerfile-path` | string | No | `'Dockerfile'` | Path to the Dockerfile relative to working-directory |
-| `image-name` | string | Yes | - | Name of the Docker image (without registry prefix) |
+| `working-directory` | string | No | `'.'` | Directory containing subdirectories with Dockerfiles |
 | `environment` | string | No | `'dev'` | Target environment (e.g., dev, stg, prod) |
 | `region` | string | No | `'us-east-1'` | AWS region for ECR |
-| `additional-tags` | string | No | `''` | Comma-separated list of additional tags to apply |
 
 #### Repository Variables (VARS)
 
@@ -423,18 +450,16 @@ The workflow supports the following repository variables for configuration:
 
 #### Automatic Tagging
 
-The workflow automatically applies multiple tags to each image:
+The workflow automatically applies exactly three tags to each image:
 
-- Branch name (e.g., `main`, `develop`)
-- Commit SHA with branch prefix (e.g., `main-abc1234`)
-- Environment name (e.g., `dev`, `stg`, `prod`)
-- `latest` (only for default branch builds)
+- `latest` - Always applied
+- `YYYY.MM.DD` - Current date in UTC (e.g., `2026.02.08`)
+- `<commit-sha>` - Full Git commit SHA (e.g., `a1b2c3d4e5f6...`)
 
-Example: An image built from the main branch for dev environment might have:
-- `my-application:main`
-- `my-application:main-abc1234`
-- `my-application:dev`
-- `my-application:latest`
+Example: An image built on February 8, 2026 from commit `abc123...` will have:
+- `my-service:latest`
+- `my-service:2026.02.08`
+- `my-service:abc123...`
 
 #### Build Arguments
 
@@ -504,7 +529,7 @@ When creating ECR repositories, the workflow automatically:
 
 - Enables image scanning on push for security
 - Applies standard tags (Project, Environment, ManagedBy, RepositoryURL)
-- Sets repository name to the value of `image-name` input
+- Sets repository name to the folder name containing the Dockerfile
 
 ## Terraform Utilities
 
