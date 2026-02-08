@@ -88,13 +88,13 @@ jobs:
         else
           ECR_REGISTRY="${{ steps.login_ecr.outputs.registry }}"
         fi
-        
+
         echo "registry=$ECR_REGISTRY" | tee -a $GITHUB_OUTPUT
-        
+
         # Construct full image name
         FULL_IMAGE_NAME="${ECR_REGISTRY}/${{ inputs.image-name }}"
         echo "full_image_name=$FULL_IMAGE_NAME" | tee -a $GITHUB_OUTPUT
-        
+
         echo "ECR Registry: $ECR_REGISTRY"
         echo "Full Image Name: $FULL_IMAGE_NAME"
 
@@ -134,7 +134,7 @@ jobs:
       shell: bash
       run: |
         BUILD_ARGS=""
-        
+
         # Add build args from VARS if provided
         if [ -n "${{ vars.DOCKER_BUILD_ARGS }}" ]; then
           # Parse comma-separated build args from VARS
@@ -143,13 +143,13 @@ jobs:
             BUILD_ARGS="${BUILD_ARGS} --build-arg ${arg}"
           done
         fi
-        
+
         # Add standard build metadata
         BUILD_ARGS="${BUILD_ARGS} --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
         BUILD_ARGS="${BUILD_ARGS} --build-arg VCS_REF=${{ github.sha }}"
         BUILD_ARGS="${BUILD_ARGS} --build-arg VERSION=${{ github.ref_name }}"
         BUILD_ARGS="${BUILD_ARGS} --build-arg ENVIRONMENT=${{ inputs.environment }}"
-        
+
         echo "args=$BUILD_ARGS" | tee -a $GITHUB_OUTPUT
 
     - name: Build and push Docker image
