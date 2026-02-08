@@ -1,0 +1,202 @@
+name: ECR Docker Build (reusable workflow)
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: 'The directory containing the Dockerfile and build context'
+        type: string
+        default: '.'
+      dockerfile-path:
+        description: 'Path to the Dockerfile relative to working-directory'
+        type: string
+        default: 'Dockerfile'
+      image-name:
+        description: 'Name of the Docker image (without registry prefix)'
+        type: string
+        required: true
+      environment:
+        description: 'The target environment (dev, stg, prod)'
+        type: string
+        default: 'dev'
+      region:
+        description: 'The AWS region for ECR (e.g., "us-west-2")'
+        type: string
+        default: 'us-east-1'
+      additional-tags:
+        description: 'Comma-separated list of additional tags to apply to the image'
+        type: string
+        default: ''
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ENVNAME: ${{ inputs.environment }}
+  REGION: ${{ inputs.region }}
+
+jobs:
+  build_and_push:
+    name: Build and Push Docker Image (${{ inputs.environment }}_${{ inputs.region }})
+    runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
+    steps:
+    - name: Get source code locally from this repo
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
+
+    - name: Set repository details
+      id: repo_details
+      shell: bash
+      run: |
+        echo "repo-name=$(echo ${{ github.repository }} | cut -d "/" -f2)" | tee -a $GITHUB_OUTPUT
+        echo "repo-url=$(echo ${{ github.repositoryUrl }} | sed 's/git:/https:/g' | sed 's/.git$//g')" | tee -a $GITHUB_OUTPUT
+        echo "roleprefix=github-role-for-$(echo "${{ github.repository }}" | cut -d "/" -f2 | cut -c1-17)-GitHubActionsRole" | tee -a $GITHUB_OUTPUT
+
+    - name: Define AWS environment variables
+      id: aws_env_ids
+      shell: bash
+      run: |
+        echo "role=${ENVNAME^^}_ROLE_SECRET" | tee -a $GITHUB_OUTPUT
+        echo "account=${ENVNAME^^}_AWS_ID" | tee -a $GITHUB_OUTPUT
+
+    - name: Retrieve the AWS IAM Role to be used
+      id: aws_role
+      shell: bash
+      run: echo "arn=arn:aws:iam::${{ secrets[ steps.aws_env_ids.outputs.account ] }}:role/${{ steps.repo_details.outputs.roleprefix }}-${{ secrets[ steps.aws_env_ids.outputs.role ] }}" | tee -a $GITHUB_OUTPUT
+
+    - name: AWS CLI Login
+      uses: aws-actions/configure-aws-credentials@d4695650384537945e0b565ee73a714d361bcb04  # v5.5.1
+      with:
+        role-to-assume: ${{ steps.aws_role.outputs.arn }}
+        aws-region: ${{ inputs.region }}
+        role-duration-seconds: '3600'
+
+    - name: Login to Amazon ECR
+      id: login_ecr
+      uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+    - name: Determine ECR registry and repository
+      id: ecr_info
+      shell: bash
+      run: |
+        # Use VARS.ECR_REGISTRY if provided, otherwise use the account from login
+        if [ -n "${{ vars.ECR_REGISTRY }}" ]; then
+          ECR_REGISTRY="${{ vars.ECR_REGISTRY }}"
+        else
+          ECR_REGISTRY="${{ steps.login_ecr.outputs.registry }}"
+        fi
+
+        echo "registry=$ECR_REGISTRY" | tee -a $GITHUB_OUTPUT
+
+        # Construct full image name
+        FULL_IMAGE_NAME="${ECR_REGISTRY}/${{ inputs.image-name }}"
+        echo "full_image_name=$FULL_IMAGE_NAME" | tee -a $GITHUB_OUTPUT
+
+        echo "ECR Registry: $ECR_REGISTRY"
+        echo "Full Image Name: $FULL_IMAGE_NAME"
+
+    - name: Create ECR repository if it doesn't exist
+      shell: bash
+      run: |
+        # Check if repository exists, create if not
+        if ! aws ecr describe-repositories --repository-names ${{ inputs.image-name }} --region ${{ inputs.region }} 2>/dev/null; then
+          echo "Repository ${{ inputs.image-name }} does not exist, creating..."
+          aws ecr create-repository \
+            --repository-name ${{ inputs.image-name }} \
+            --region ${{ inputs.region }} \
+            --image-scanning-configuration scanOnPush=true \
+            --tags Key=Project,Value=${{ steps.repo_details.outputs.repo-name }} \
+                   Key=Environment,Value=${{ inputs.environment }} \
+                   Key=ManagedBy,Value=GitHubActions \
+                   Key=RepositoryURL,Value=${{ steps.repo_details.outputs.repo-url }}
+          echo "Repository created successfully"
+        else
+          echo "Repository ${{ inputs.image-name }} already exists"
+        fi
+
+    - name: Extract Docker metadata
+      id: meta
+      uses: docker/metadata-action@8e5442c4ef9f78752691e2d8f8d19755c6f78e81 # v5.5.1
+      with:
+        images: ${{ steps.ecr_info.outputs.full_image_name }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=${{ inputs.environment }}
+          type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+    - name: Prepare build arguments
+      id: build_args
+      shell: bash
+      run: |
+        BUILD_ARGS=""
+
+        # Add build args from VARS if provided
+        if [ -n "${{ vars.DOCKER_BUILD_ARGS }}" ]; then
+          # Parse comma-separated build args from VARS
+          IFS=',' read -ra ARGS <<< "${{ vars.DOCKER_BUILD_ARGS }}"
+          for arg in "${ARGS[@]}"; do
+            if [ -n "$BUILD_ARGS" ]; then
+              BUILD_ARGS="${BUILD_ARGS}"$'\n'"${arg}"
+            else
+              BUILD_ARGS="${arg}"
+            fi
+          done
+        fi
+
+        # Add standard build metadata with newline separation
+        if [ -n "$BUILD_ARGS" ]; then
+          BUILD_ARGS="${BUILD_ARGS}"$'\n'
+        fi
+        BUILD_ARGS="${BUILD_ARGS}BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        BUILD_ARGS="${BUILD_ARGS}"$'\n'"VCS_REF=${{ github.sha }}"
+        BUILD_ARGS="${BUILD_ARGS}"$'\n'"VERSION=${{ github.ref_name }}"
+        BUILD_ARGS="${BUILD_ARGS}"$'\n'"ENVIRONMENT=${{ inputs.environment }}"
+
+        # Use heredoc to properly handle multiline output
+        {
+          echo "args<<EOF"
+          echo "$BUILD_ARGS"
+          echo "EOF"
+        } >> $GITHUB_OUTPUT
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.0
+      with:
+        context: ${{ inputs.working-directory }}
+        file: ${{ inputs.working-directory }}/${{ inputs.dockerfile-path }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: ${{ steps.build_args.outputs.args }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        provenance: false
+
+    - name: Parse and display image tags
+      shell: bash
+      run: |
+        echo "### Docker Image Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Repository:** ${{ inputs.image-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Registry:** ${{ steps.ecr_info.outputs.registry }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Region:** ${{ inputs.region }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Tags Applied:**" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Build completed successfully** ✅" >> $GITHUB_STEP_SUMMARY
+
+    - name: Output image details
+      shell: bash
+      run: |
+        echo "Image URI: ${{ steps.ecr_info.outputs.full_image_name }}:${{ inputs.environment }}"
+        echo "Available tags:"
+        echo "${{ steps.meta.outputs.tags }}"

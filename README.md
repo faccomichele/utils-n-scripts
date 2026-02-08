@@ -357,6 +357,155 @@ The AWS IAM role must have the following permissions:
 - `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket` on the website bucket
 - `cloudfront:CreateInvalidation` on the CloudFront distribution (if using CloudFront)
 
+### ECR Docker Build Workflow
+
+Located in `.github/workflows/ecr-docker-build.yml`, this is a reusable workflow for building Docker images and pushing them to Amazon ECR (Elastic Container Registry).
+
+#### Features
+
+- Builds Docker images using Docker Buildx
+- Automatically creates ECR repositories if they don't exist
+- Pushes images with multiple tags for flexible deployment
+- Integration with AWS IAM roles via OIDC
+- Multi-environment support (dev, staging, production)
+- Docker layer caching for faster builds
+- Image scanning enabled by default (scan on push)
+- Automatic tagging with commit SHA, branch name, and environment
+- Build arguments support via repository variables
+- Detailed build summaries in GitHub job summaries
+
+#### Usage
+
+This workflow can be used standalone or as part of a deployment pipeline:
+
+```yaml
+name: Docker Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  docker-build:
+    uses: faccomichele/utils-n-scripts/.github/workflows/ecr-docker-build.yml@latest
+    with:
+      working-directory: '.'
+      dockerfile-path: 'Dockerfile'
+      image-name: 'my-application'
+      environment: 'dev'
+      region: 'us-east-1'
+    secrets: inherit
+```
+
+#### Input Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `working-directory` | string | No | `'.'` | Directory containing the Dockerfile and build context |
+| `dockerfile-path` | string | No | `'Dockerfile'` | Path to the Dockerfile relative to working-directory |
+| `image-name` | string | Yes | - | Name of the Docker image (without registry prefix) |
+| `environment` | string | No | `'dev'` | Target environment (e.g., dev, stg, prod) |
+| `region` | string | No | `'us-east-1'` | AWS region for ECR |
+| `additional-tags` | string | No | `''` | Comma-separated list of additional tags to apply |
+
+#### Repository Variables (VARS)
+
+The workflow supports the following repository variables for configuration:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `RUNNERS` | Custom GitHub Actions runner | `ubuntu-latest` |
+| `ECR_REGISTRY` | Override ECR registry URL | Uses account registry |
+| `DOCKER_BUILD_ARGS` | Comma-separated build arguments (e.g., `NODE_ENV=production,PORT=3000`) | None |
+
+**Tip**: Use VARS for configuration that is consistent across all builds (like build arguments, registry overrides) instead of passing them as inputs each time.
+
+#### Automatic Tagging
+
+The workflow automatically applies multiple tags to each image:
+
+- Branch name (e.g., `main`, `develop`)
+- Commit SHA with branch prefix (e.g., `main-abc1234`)
+- Environment name (e.g., `dev`, `stg`, `prod`)
+- `latest` (only for default branch builds)
+
+Example: An image built from the main branch for dev environment might have:
+- `my-application:main`
+- `my-application:main-abc1234`
+- `my-application:dev`
+- `my-application:latest`
+
+#### Build Arguments
+
+The workflow automatically includes these build arguments:
+
+- `BUILD_DATE`: ISO 8601 timestamp of the build
+- `VCS_REF`: Git commit SHA
+- `VERSION`: Git reference name (branch or tag)
+- `ENVIRONMENT`: Target environment name
+
+Additional build arguments can be provided via the `DOCKER_BUILD_ARGS` repository variable.
+
+Example Dockerfile using build arguments:
+
+```dockerfile
+FROM node:20-alpine
+
+ARG BUILD_DATE
+ARG VCS_REF
+ARG VERSION
+ARG ENVIRONMENT
+
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.revision="${VCS_REF}"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL environment="${ENVIRONMENT}"
+
+WORKDIR /app
+COPY . .
+RUN npm install --production
+CMD ["node", "index.js"]
+```
+
+#### Required Secrets
+
+The workflow expects the following secrets to be configured in your repository:
+
+- `<ENV>_AWS_ID`: AWS Account ID for the target environment (e.g., `DEV_AWS_ID`)
+- `<ENV>_ROLE_SECRET`: Suffix for the IAM role name (e.g., `DEV_ROLE_SECRET`)
+
+#### IAM Role Requirements
+
+The AWS IAM role must have the following ECR permissions:
+
+- `ecr:GetAuthorizationToken` (global, not repository-specific)
+- `ecr:DescribeRepositories`
+- `ecr:CreateRepository`
+- `ecr:PutImage`
+- `ecr:InitiateLayerUpload`
+- `ecr:UploadLayerPart`
+- `ecr:CompleteLayerUpload`
+- `ecr:BatchCheckLayerAvailability`
+
+#### Permissions Required
+
+The workflow needs the following permissions:
+
+```yaml
+permissions:
+  id-token: write  # For AWS OIDC authentication
+  contents: read   # For checking out code
+```
+
+#### ECR Repository Configuration
+
+When creating ECR repositories, the workflow automatically:
+
+- Enables image scanning on push for security
+- Applies standard tags (Project, Environment, ManagedBy, RepositoryURL)
+- Sets repository name to the value of `image-name` input
+
 ## Terraform Utilities
 
 ### Terraform Output to Markdown Converter
