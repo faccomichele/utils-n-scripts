@@ -1,0 +1,45 @@
+# Example workflow demonstrating ECR Docker image build and push
+name: ECR Docker Deployment
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  # Build and push Docker image to ECR
+  docker-build:
+    uses: faccomichele/utils-n-scripts/.github/workflows/ecr-docker-build.yml@latest
+    with:
+      working-directory: '.'
+      dockerfile-path: 'Dockerfile'
+      image-name: 'my-application'
+      environment: 'dev'
+      region: 'us-east-1'
+    secrets: inherit
+
+  # Example: Build for staging on main branch
+  docker-build-staging:
+    if: github.ref == 'refs/heads/main'
+    uses: faccomichele/utils-n-scripts/.github/workflows/ecr-docker-build.yml@latest
+    with:
+      working-directory: '.'
+      dockerfile-path: 'Dockerfile'
+      image-name: 'my-application'
+      environment: 'stg'
+      region: 'us-east-1'
+    secrets: inherit
+
+  # Example: Build for production with approval
+  docker-build-production:
+    if: github.ref == 'refs/heads/main'
+    needs: docker-build-staging
+    uses: faccomichele/utils-n-scripts/.github/workflows/ecr-docker-build.yml@latest
+    with:
+      working-directory: '.'
+      dockerfile-path: 'Dockerfile'
+      image-name: 'my-application'
+      environment: 'prod'
+      region: 'us-east-1'
+    secrets: inherit
