@@ -64,6 +64,13 @@ jobs:
         path: ${{ inputs.working-directory }}/lambda
         merge-multiple: true
 
+    - name: Download processed config files
+      continue-on-error: true
+      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      with:
+        name: processed-configs-${{ github.run_id }}
+        path: ${{ inputs.working-directory }}
+
     - name: Define the name of the variables to be retrieved based on the target environment
       id: aws_env_ids
       shell: bash

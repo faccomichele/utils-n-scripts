@@ -1,0 +1,119 @@
+name: Process Config Templates (reusable workflow)
+
+on:
+  workflow_call:
+    inputs:
+      region:
+        description: 'AWS region for parameter/secret retrieval'
+        type: string
+        default: 'us-east-1'
+      working-directory:
+        description: 'The location to search for .fmtcf files'
+        type: string
+        default: '.'
+
+permissions:
+  contents: read
+
+jobs:
+  process_config_templates:
+    name: Process Config Templates - (${{ inputs.working-directory }})
+    runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
+    steps:
+    - name: Get source code locally from this repo
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+    - name: Set up Python
+      uses: actions/setup-python@f677139bbe7f9c59b41e40162b753cc15f5c8e91 # v5.3.0
+      with:
+        python-version: ${{ vars.PYTHON_VERSION || '3.13' }}
+
+    - name: Install boto3
+      shell: bash
+      run: pip install boto3
+
+    - name: Find all .fmtcf files
+      id: find_files
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        # Find all .fmtcf files
+        FILES=$(find . -name "*.fmtcf" -type f)
+        
+        # Count files
+        FILE_COUNT=$(echo "$FILES" | grep -c . || echo "0")
+        
+        echo "Found $FILE_COUNT .fmtcf file(s)"
+        echo "$FILES"
+        
+        # Save file list to output
+        echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+        
+        # Save files list to a temporary file for use in next step
+        echo "$FILES" > /tmp/fmtcf_files.txt
+
+    - name: Process config template files
+      if: steps.find_files.outputs.file_count != '0'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        # Read file list
+        while IFS= read -r file; do
+          if [ -n "$file" ]; then
+            echo "Processing: $file"
+            python3 $GITHUB_WORKSPACE/python/process_fmtcf.py "$file" --region "${{ inputs.region }}" || {
+              echo "Failed to process $file"
+              exit 1
+            }
+          fi
+        done < /tmp/fmtcf_files.txt
+        
+        echo "All .fmtcf files processed successfully"
+
+    - name: Collect processed files for artifact
+      if: steps.find_files.outputs.file_count != '0'
+      id: collect_files
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        # Create a directory to store processed files
+        mkdir -p /tmp/processed_configs
+        
+        # Copy all processed files (files without .fmtcf extension)
+        while IFS= read -r file; do
+          if [ -n "$file" ]; then
+            # Remove .fmtcf extension to get the output filename
+            OUTPUT_FILE="${file%.fmtcf}"
+            if [ -f "$OUTPUT_FILE" ]; then
+              # Create necessary subdirectories in the destination
+              DEST_DIR="/tmp/processed_configs/$(dirname "$OUTPUT_FILE")"
+              mkdir -p "$DEST_DIR"
+              # Copy the processed file
+              cp "$OUTPUT_FILE" "/tmp/processed_configs/$OUTPUT_FILE"
+              echo "Collected: $OUTPUT_FILE"
+            fi
+          fi
+        done < /tmp/fmtcf_files.txt
+        
+        # List all collected files
+        echo "Processed files:"
+        find /tmp/processed_configs -type f
+
+    - name: Upload processed config files as artifact
+      if: steps.find_files.outputs.file_count != '0'
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      with:
+        name: processed-configs-${{ github.run_id }}
+        path: /tmp/processed_configs/
+        retention-days: 1
+
+    - name: Summary
+      shell: bash
+      run: |
+        if [ "${{ steps.find_files.outputs.file_count }}" -eq "0" ]; then
+          echo "No .fmtcf files found in ${{ inputs.working-directory }}" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "Processed ${{ steps.find_files.outputs.file_count }} .fmtcf file(s)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Artifact: \`processed-configs-${{ github.run_id }}\`" >> $GITHUB_STEP_SUMMARY
+        fi
