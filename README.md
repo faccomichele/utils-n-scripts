@@ -8,6 +8,7 @@ This repository contains:
 
 - **GitHub Actions Workflows**: Reusable workflows for common CI/CD tasks
 - **Terraform Utilities**: Scripts for processing and formatting Terraform output
+- **Python Utilities**: Scripts for configuration file processing
 - **Examples**: Sample configurations and usage examples (see [examples/](examples/README.md))
 
 ## GitHub Actions Workflows
@@ -357,6 +358,119 @@ The AWS IAM role must have the following permissions:
 - `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket` on the website bucket
 - `cloudfront:CreateInvalidation` on the CloudFront distribution (if using CloudFront)
 
+### Process Config Templates Workflow
+
+Located in `.github/workflows/process-fmtcf-files.yml`, this is a reusable workflow for processing configuration template files (`.fmtcf` extension) by replacing placeholders with actual values from AWS or environment variables.
+
+#### Features
+
+- Automatically detects all `.fmtcf` files in the working directory
+- Replaces placeholders with actual values:
+  - `AWS-PARAMETER::name` - AWS SSM Parameter Store values (with decryption)
+  - `AWS-SECRET::name` - AWS Secrets Manager values
+  - `ENV::name` - Environment variable values
+- Processes files concurrently
+- Uploads processed files as artifacts (without `.fmtcf` extension)
+- Maintains directory structure in artifact
+- Integration with Terraform workflow (automatic download before terraform init)
+
+#### Usage
+
+This workflow can be used standalone or as part of a deployment pipeline:
+
+```yaml
+name: Config Processing and Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  process-configs:
+    uses: faccomichele/utils-n-scripts/.github/workflows/process-fmtcf-files.yml@latest
+    with:
+      working-directory: './config'
+      region: 'us-east-1'
+
+  terraform-apply:
+    needs: process-configs
+    uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@latest
+    with:
+      action: 'apply'
+      environment: 'dev'
+      region: 'us-east-1'
+      working-directory: './terraform'
+    secrets: inherit
+```
+
+#### Input Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `region` | string | No | `'us-east-1'` | AWS region for parameter/secret retrieval |
+| `working-directory` | string | No | `'.'` | Directory to search for `.fmtcf` files |
+
+#### Placeholder Format
+
+Template files use the following placeholder format:
+
+- **AWS Parameter Store**: `AWS-PARAMETER::parameter-name`
+  - Retrieves values from AWS Systems Manager Parameter Store with decryption enabled
+  - Example: `AWS-PARAMETER::api-key` retrieves the value of the `api-key` parameter
+
+- **AWS Secrets Manager**: `AWS-SECRET::secret-name`
+  - Retrieves secrets from AWS Secrets Manager
+  - Example: `AWS-SECRET::database-password` retrieves the database password secret
+
+- **Environment Variables**: `ENV::VARIABLE_NAME`
+  - Retrieves values from environment variables
+  - Example: `ENV::NODE_ENV` retrieves the value of the `NODE_ENV` environment variable
+
+#### Template File Examples
+
+**app-config.json.fmtcf:**
+```json
+{
+  "environment": "ENV::ENVIRONMENT",
+  "api_key": "AWS-PARAMETER::api-key",
+  "database": {
+    "password": "AWS-SECRET::db-password"
+  }
+}
+```
+
+After processing, this becomes `app-config.json` with all placeholders replaced.
+
+#### Artifact Output
+
+The workflow creates an artifact named `processed-configs-{run_id}` containing:
+- All processed files with the `.fmtcf` extension removed
+- Same directory structure as the templates
+- Retention: 1 day (minimal to reduce storage costs)
+
+#### Integration with Terraform
+
+The Terraform Run workflow automatically downloads the `processed-configs-{run_id}` artifact before running `terraform init`, making processed configuration files available during Terraform operations.
+
+#### Requirements
+
+- **AWS Credentials**: Must be configured for AWS placeholder types
+- **IAM Permissions**: 
+  - `ssm:GetParameter` for AWS-PARAMETER placeholders
+  - `secretsmanager:GetSecretValue` for AWS-SECRET placeholders
+- **Environment Variables**: Must be set for ENV placeholders
+
+#### Python Script
+
+The workflow uses `python/process_fmtcf.py` which can also be used standalone:
+
+```bash
+python3 python/process_fmtcf.py config/app.json.fmtcf --region us-east-1
+```
+
+See [examples/config-templates/](examples/config-templates/) for more examples.
+
 ### ECR Docker Build Workflow
 
 Located in `.github/workflows/ecr-docker-build.yml`, this is a reusable workflow for building Docker images and pushing them to Amazon ECR (Elastic Container Registry).
@@ -573,6 +687,64 @@ The script looks for these files in the current directory:
 #### Output
 
 - `tf-report.md`: Formatted Markdown report with plan/apply summary and details
+
+## Python Utilities
+
+### Configuration File Template Processor
+
+Located in `python/process_fmtcf.py`, this script processes configuration template files by replacing placeholders with actual values.
+
+#### Features
+
+- Processes `.fmtcf` template files
+- Replaces three types of placeholders:
+  - `AWS-PARAMETER::name` - AWS SSM Parameter Store (with decryption)
+  - `AWS-SECRET::name` - AWS Secrets Manager
+  - `ENV::name` - Environment variables
+- Outputs files without `.fmtcf` extension
+- Supports custom AWS region specification
+- Comprehensive error handling and validation
+
+#### Usage
+
+```bash
+# Process a template file
+python3 python/process_fmtcf.py config/app.json.fmtcf --region us-east-1
+
+# This creates config/app.json with all placeholders replaced
+```
+
+#### Command Line Options
+
+- `file` (required): Path to the `.fmtcf` file to process
+- `--region`: AWS region for parameter/secret retrieval (optional)
+
+#### Example
+
+Given a template file `database.conf.fmtcf`:
+```
+host=ENV::DB_HOST
+port=5432
+username=AWS-PARAMETER::db-username
+password=AWS-SECRET::db-password
+```
+
+Running the processor:
+```bash
+export DB_HOST=localhost
+python3 python/process_fmtcf.py database.conf.fmtcf --region us-east-1
+```
+
+Creates `database.conf` with actual values filled in.
+
+#### Requirements
+
+- Python 3.7+
+- boto3 (for AWS operations)
+- Appropriate AWS credentials and IAM permissions
+- Environment variables (for ENV placeholders)
+
+See [examples/config-templates/](examples/config-templates/) for more examples and detailed documentation.
 
 ## Setup
 

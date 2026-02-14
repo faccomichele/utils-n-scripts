@@ -28,3 +28,12 @@ Thumbs.db
 tf-logs.json
 tf-show.json
 tf-report.md
+
+# Processed config files from .fmtcf templates
+# Exclude the processed files but keep the .fmtcf templates
+examples/config-templates/*.json
+examples/config-templates/*.yml
+examples/config-templates/*.yaml
+examples/config-templates/*.txt
+examples/config-templates/*.conf
+examples/config-templates/*.ini

@@ -1,0 +1,11 @@
+version: "3"
+services:
+  app:
+    image: myapp:latest
+    environment:
+      - NODE_ENV=ENV::NODE_ENV
+      - API_KEY=AWS-PARAMETER::api-key
+      - DATABASE_URL=AWS-SECRET::database-url
+      - LOG_LEVEL=ENV::LOG_LEVEL
+    ports:
+      - "3000:3000"

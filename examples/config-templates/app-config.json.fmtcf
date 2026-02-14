@@ -1,0 +1,18 @@
+{
+  "app_name": "my-application",
+  "environment": "ENV::ENVIRONMENT",
+  "api": {
+    "key": "ENV::API_KEY",
+    "endpoint": "https://api.example.com"
+  },
+  "database": {
+    "host": "ENV::DB_HOST",
+    "port": 5432,
+    "username": "ENV::DB_USER",
+    "password": "AWS-SECRET::db-password"
+  },
+  "aws": {
+    "region": "ENV::AWS_REGION",
+    "s3_bucket": "ENV::S3_BUCKET"
+  }
+}
