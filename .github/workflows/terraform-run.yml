@@ -33,6 +33,7 @@ permissions:
 env:
   ENVNAME: ${{ inputs.environment }}
   REGION: ${{ inputs.region }}
+  S3REGION: ${{ vars.TF_STATE_SSM_REGION || 'eu-central-1' }}
 
 jobs:
   terraform_plan_apply:
@@ -84,20 +85,31 @@ jobs:
         role-to-assume: ${{ steps.aws_role.outputs.arn }}
         aws-region: ${{ inputs.region == 'global' && 'eu-central-1' || inputs.region  }}
         role-duration-seconds: '3600'
+
+    - name: Retrieve central account and role secret from SSM
+      id: get_core_params
+      shell: bash
+      run: |
+        echo "Retrieving SSM parameters from region ${S3REGION}..."
+        CORE_ACCOUNT=$(aws ssm get-parameter --name "/manual/global/central-account/account-id" --with-decryption --region "$S3REGION" --query Parameter.Value --output text)
+        CORE_ROLE_SECRET=$(aws ssm get-parameter --name "/manual/${ENVNAME}/terraform/state-file/role-secret" --with-decryption --region "$S3REGION" --query Parameter.Value --output text)
+        # Mask values in GitHub Actions logs
+        echo "::add-mask::$CORE_ACCOUNT"
+        echo "::add-mask::$CORE_ROLE_SECRET"
+        echo "core_account=$CORE_ACCOUNT" | tee -a $GITHUB_OUTPUT
+        echo "core_role_secret=$CORE_ROLE_SECRET" | tee -a $GITHUB_OUTPUT
     
     - name: Get S3 Backend configuration for storing shared state files
       shell: bash
-      env:
-        S3REGION: ${{ vars.TF_STATE_SSM_REGION || 'eu-central-1' }}
       run: |
         cat > s3backend.tf << EOF
         terraform {
           backend "s3" {
-            bucket        = "terraform-core-aws-state-files-${ENVNAME}-${{ secrets.CORE_TERRAFORM_ACCOUNT }}"
+            bucket        = "terraform-core-aws-state-files-${ENVNAME}-${{ steps.get_core_params.outputs.core_account }}"
             key           = "${{ steps.repo_details.outputs.repo-name }}/terraform.tfstate"
             region        = "${S3REGION}"
             assume_role   = {
-              role_arn    = "arn:aws:iam::${{ secrets.CORE_TERRAFORM_ACCOUNT }}:role/terraform-core-backend-setup-TerraformStateRole-${{ secrets.CORE_TERRAFORM_ROLE_SECRET}}"
+              role_arn    = "arn:aws:iam::${{ steps.get_core_params.outputs.core_account }}:role/terraform-core-backend-setup-TerraformStateRole-${{ steps.get_core_params.outputs.core_role_secret }}"
             }
             encrypt       = true
             use_lockfile  = true
@@ -111,11 +123,11 @@ jobs:
       shell: bash
       run: |
         echo "Assuming role to access S3 backend..."
-        CREDS=$(aws sts assume-role --role-arn "arn:aws:iam::${{ secrets.CORE_TERRAFORM_ACCOUNT }}:role/terraform-core-backend-setup-TerraformStateRole-${{ secrets.CORE_TERRAFORM_ROLE_SECRET}}" --role-session-name "TestS3AccessSession" --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text)
+        CREDS=$(aws sts assume-role --role-arn "arn:aws:iam::${{ steps.get_core_params.outputs.core_account }}:role/terraform-core-backend-setup-TerraformStateRole-${{ steps.get_core_params.outputs.core_role_secret }}" --role-session-name "TestS3AccessSession" --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text)
         read AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN <<< "$CREDS"
         export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
         aws sts get-caller-identity
-        BUCKET="s3://terraform-core-aws-state-files-${ENVNAME}-${{ secrets.CORE_TERRAFORM_ACCOUNT }}"
+        BUCKET="s3://terraform-core-aws-state-files-${ENVNAME}-${{ steps.get_core_params.outputs.core_account }}"
         aws s3 ls "$BUCKET" || exit 1
 
         # Create, get and delete a small non-empty object to validate S3 operations with assumed role
@@ -159,12 +171,12 @@ jobs:
       run: |
         # Read the secret into a variable while preserving newlines using a heredoc
         TFVARS_SECRET=$(cat <<'TFVARS_SECRET_EOF'
-        ${{ secrets[ steps.aws_env_ids.outputs.tfvars ] }}
+        ${{ vars[ steps.aws_env_ids.outputs.tfvars ] }}
         TFVARS_SECRET_EOF
         )
         if [[ -z "$TFVARS_SECRET" ]]; then
           TFVARS_SECRET=$(cat <<'TFVARS_SECRET_EOF'
-        ${{ secrets[ steps.workspace.outputs.varfile ] }}
+        ${{ vars[ steps.workspace.outputs.varfile ] }}
         TFVARS_SECRET_EOF
         )
         fi
