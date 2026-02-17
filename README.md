@@ -83,6 +83,9 @@ jobs:
 - The workflow uses native runners matching the target architecture (x86_64 or arm64) to ensure packages with native dependencies (like `bcrypt`, `cryptography`, etc.) are built correctly
 - For `x86_64`: Uses standard GitHub-hosted runners (`ubuntu-latest`)
 - For `arm64`: Uses ARM64 runners (`ubuntu-24.04-arm64`)
+  - **Note**: ARM64 runners require GitHub Team or Enterprise Cloud plan with Linux ARM64 runners enabled
+  - Alternatively, you can use self-hosted ARM64 runners with the same label
+  - See [GitHub's documentation on ARM64 runners](https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#supported-runners-and-hardware-resources) for availability
 - **Python**: Installs packages using the correct platform string (`manylinux2014_x86_64` or `manylinux2014_aarch64`)
 - **Node.js**: Configures npm to download the correct native binaries for the target architecture
 - Default is `x86_64` for backward compatibility
