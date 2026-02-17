@@ -7,6 +7,10 @@ on:
         description: 'The location containing the lambda subfolders to build'
         type: string
         default: '.'
+      architecture:
+        description: 'Target Lambda architecture: x86_64 or arm64'
+        type: string
+        default: 'x86_64'
 
 permissions:
   contents: read
@@ -14,7 +18,7 @@ permissions:
 jobs:
   detect_lambdas:
     name: Detect Lambda Functions - (${{ inputs.working-directory }})
-    runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.architecture == 'arm64' && 'ubuntu-24.04-arm64' || vars.RUNNERS || 'ubuntu-latest' }}
     outputs:
       matrix: ${{ steps.detect.outputs.matrix }}
       has_lambdas: ${{ steps.detect.outputs.has_lambdas }}
@@ -109,7 +113,7 @@ jobs:
 
   build_lambdas:
     name: Build ${{ matrix.lambda.path }}${{ matrix.lambda.path != '' && '/' || '' }}${{ matrix.lambda.folder }} (${{ matrix.lambda.type }})
-    runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.architecture == 'arm64' && 'ubuntu-24.04-arm64' || vars.RUNNERS || 'ubuntu-latest' }}
     needs: detect_lambdas
     if: needs.detect_lambdas.outputs.has_lambdas == 'true'
     strategy:
@@ -150,7 +154,16 @@ jobs:
         if [ -f "requirements.txt" ]; then
           echo "Installing Python dependencies to python/ directory..."
           mkdir -p python
-          pip install -r requirements.txt -t python/ --only-binary=:all: --platform ${{ vars.PYTHON_ARCH || 'manylinux2014_x86_64' }}
+          
+          # Determine the platform string based on architecture
+          if [ "${{ inputs.architecture }}" = "arm64" ]; then
+            PLATFORM="manylinux2014_aarch64"
+          else
+            PLATFORM="manylinux2014_x86_64"
+          fi
+          
+          echo "Using platform: $PLATFORM"
+          pip install -r requirements.txt -t python/ --only-binary=:all: --platform "$PLATFORM"
 
           # Create layer zip with dependencies only in current directory
           if [ -d "python" ] && [ "$(ls -A python)" ]; then
@@ -209,6 +222,16 @@ jobs:
         # Install dependencies if package.json exists
         if [ -f "package.json" ]; then
           echo "Installing Node.js dependencies..."
+          
+          # Set npm config for target architecture
+          if [ "${{ inputs.architecture }}" = "arm64" ]; then
+            npm config set arch arm64
+            npm config set platform linux
+          else
+            npm config set arch x64
+            npm config set platform linux
+          fi
+          
           npm install --omit=dev
 
           # Create layer zip with dependencies only (node_modules) in current directory

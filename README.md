@@ -65,11 +65,34 @@ jobs:
     secrets: inherit
 ```
 
+**Building for ARM64 architecture:**
+
+To build Lambda packages for ARM64 (Graviton2) architecture, specify the `architecture` parameter:
+
+```yaml
+jobs:
+  lambda-build-arm64:
+    uses: faccomichele/utils-n-scripts/.github/workflows/lambda-build.yml@latest
+    with:
+      working-directory: './terraform'
+      architecture: 'arm64'
+```
+
+**Important Notes about Architecture:**
+
+- The workflow uses native runners matching the target architecture (x86_64 or arm64) to ensure packages with native dependencies (like `bcrypt`, `cryptography`, etc.) are built correctly
+- For `x86_64`: Uses standard GitHub-hosted runners (`ubuntu-latest`)
+- For `arm64`: Uses ARM64 runners (`ubuntu-24.04-arm64`)
+- **Python**: Installs packages using the correct platform string (`manylinux2014_x86_64` or `manylinux2014_aarch64`)
+- **Node.js**: Configures npm to download the correct native binaries for the target architecture
+- Default is `x86_64` for backward compatibility
+
 #### Input Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `working-directory` | string | No | `'.'` | Directory containing the Lambda function subfolders |
+| `architecture` | string | No | `'x86_64'` | Target Lambda architecture: `'x86_64'` or `'arm64'`. This determines which runner is used to build packages with the correct native dependencies. |
 
 #### Requirements
 
