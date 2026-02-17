@@ -7,12 +7,12 @@ This directory contains example files demonstrating how to use the reusable work
 ### complete-deployment-workflow.yml
 
 A complete GitHub Actions workflow example showing how to chain together:
-1. Lambda Build workflow - builds Lambda function packages
+1. Lambda Build workflow - builds Lambda function packages (with optional ARM64 support)
 2. Terraform Run workflow - provisions AWS infrastructure
 3. Deploy Website workflow - deploys static website with placeholder replacement
 
 This example demonstrates:
-- Building Lambda functions
+- Building Lambda functions for x86_64 (default) or ARM64 architecture
 - Running Terraform plan on pull requests
 - Running Terraform apply on main branch
 - Deploying website files to S3 after infrastructure is ready

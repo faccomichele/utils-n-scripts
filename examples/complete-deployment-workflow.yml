@@ -8,15 +8,24 @@ on:
       - main
 
 jobs:
-  # Step 1: Build Lambda functions
-  lambda-build:
+  # Step 1: Build Lambda functions for x86_64 (default)
+  lambda-build-x86:
     uses: faccomichele/utils-n-scripts/.github/workflows/lambda-build.yml@latest
     with:
       working-directory: './terraform'
+      # architecture: 'x86_64' # This is the default, can be omitted
+
+  # Optional: Build Lambda functions for ARM64 (Graviton2)
+  # Uncomment this job if you need ARM64 Lambda packages
+  # lambda-build-arm64:
+  #   uses: faccomichele/utils-n-scripts/.github/workflows/lambda-build.yml@latest
+  #   with:
+  #     working-directory: './terraform'
+  #     architecture: 'arm64'
 
   # Step 2: Run Terraform plan on PR, apply on main
   terraform-plan:
-    needs: lambda-build
+    needs: lambda-build-x86  # Change to lambda-build-arm64 if using ARM64
     uses: faccomichele/utils-n-scripts/.github/workflows/terraform-run.yml@latest
     with:
       action: ${{ github.event_name == 'pull_request' && 'plan' || 'apply' }}
