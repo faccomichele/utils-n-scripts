@@ -109,7 +109,7 @@ jobs:
             key           = "${{ steps.repo_details.outputs.repo-name }}/terraform.tfstate"
             region        = "${S3REGION}"
             assume_role   = {
-              role_arn    = "arn:aws:iam::${{ steps.get_core_params.outputs.core_account }}:role/terraform-core-backend-setup-TerraformStateRole-${{ steps.get_core_params.outputs.core_role_secret }}"
+              role_arn    = "arn:aws:iam::${{ steps.get_core_params.outputs.core_account }}:role/terraform-core-backend-setup-${ENVNAME}-TfStateRole-${{ steps.get_core_params.outputs.core_role_secret }}"
             }
             encrypt       = true
             use_lockfile  = true
