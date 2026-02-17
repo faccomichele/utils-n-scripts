@@ -187,7 +187,7 @@ jobs:
           cat > "config/${{ steps.workspace.outputs.name }}.tfvars" <<EOF
         $TFVARS_SECRET
         EOF
-          echo "Created config/${{ steps.workspace.outputs.name }}.tfvars from secret"
+          echo "Created config/${{ steps.workspace.outputs.name }}.tfvars from repo vars"
         else
           echo "No TFVARS found for ${ENVNAME}, skipping."
         fi
