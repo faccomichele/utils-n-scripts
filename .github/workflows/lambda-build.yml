@@ -150,7 +150,7 @@ jobs:
         if [ -f "requirements.txt" ]; then
           echo "Installing Python dependencies to python/ directory..."
           mkdir -p python
-          pip install -r requirements.txt -t python/ --only-binary=:all: --platform ${{ vars.PYTHON_ARCH || 'manylinux2014_x86_64' }}
+          pip install -r requirements.txt -t python/ --only-binary=:all:
 
           # Create layer zip with dependencies only in current directory
           if [ -d "python" ] && [ "$(ls -A python)" ]; then
