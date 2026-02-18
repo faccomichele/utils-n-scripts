@@ -15,10 +15,6 @@ on:
         description: 'The location containing the files to be synced to S3'
         type: string
         default: 'website'
-      terraform-artifact-name:
-        description: 'Name of the terraform output artifact to download'
-        type: string
-        default: 'terraform-output'
 
 permissions:
   id-token: write
@@ -39,7 +35,7 @@ jobs:
     - name: Download Terraform output artifact
       uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
       with:
-        name: ${{ inputs.terraform-artifact-name }}-${{ github.run_id }}
+        name: terraform-output-${{ inputs.environment }}-${{ inputs.region }}-*-${{ github.run_id }}
         path: /tmp/terraform-output
 
     - name: Parse Terraform outputs and perform replacements
