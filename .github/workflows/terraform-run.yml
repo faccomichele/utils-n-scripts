@@ -28,7 +28,7 @@ on:
         description: 'Optional: If true, upload the terraform output artifact from the current workflow run, otherwise it skips it.'
         type: boolean
         required: false
-        default: true
+        default: false
 
 permissions:
   id-token: write
