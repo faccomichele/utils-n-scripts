@@ -278,11 +278,17 @@ jobs:
       run: terraform output -json > tf-output.json
       working-directory: ${{ inputs.working-directory }}
 
+    - name: Convert working-directory Name
+      id: wd_name
+      if: always()
+      shell: bash
+      run: echo "name=$(echo '${{ inputs.working-directory }}' | tr '/.' '_' )" | tee -a $GITHUB_OUTPUT
+
     - name: Upload Terraform JSON outputs artifact
       if: inputs.upload-output-artifact
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
-        name: terraform-output-${{ inputs.environment }}-${{ inputs.region }}-${{ inputs.working-directory }}-${{ github.run_id }}
+        name: terraform-output-${{ inputs.environment }}-${{ inputs.region }}-${{ steps.wd_name.outputs.name }}-${{ github.run_id }}
         path: ${{ inputs.working-directory }}/tf-output.json
         retention-days: 1
     
