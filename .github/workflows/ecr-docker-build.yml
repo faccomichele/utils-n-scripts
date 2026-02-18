@@ -135,13 +135,13 @@ jobs:
         if [ -n "${{ vars.ECR_REGISTRY }}" ]; then
           ECR_REGISTRY="${{ vars.ECR_REGISTRY }}"
         else
-          ECR_REGISTRY="${{ secrets[ steps.aws_env_ids.outputs.account ] }}.dkr.ecr.${{ inputs.region }}.amazonaws.com/${{ steps.repo_details.outputs.repo-name }}-${{ matrix.dockerfile.folder }}-${ENVNAME}"
+          ECR_REGISTRY="${{ secrets[ steps.aws_env_ids.outputs.account ] }}.dkr.ecr.${{ inputs.region }}.amazonaws.com"
         fi
 
         echo "registry=$ECR_REGISTRY" | tee -a $GITHUB_OUTPUT
 
         # Use folder name as image name
-        IMAGE_NAME="${{ matrix.dockerfile.folder }}"
+        IMAGE_NAME="${{ steps.repo_details.outputs.repo-name }}-${{ matrix.dockerfile.folder }}-${ENVNAME}"
         
         # Construct full image name
         FULL_IMAGE_NAME="${ECR_REGISTRY}/${IMAGE_NAME}"
