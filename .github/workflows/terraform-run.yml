@@ -24,6 +24,11 @@ on:
         type: boolean
         required: false
         default: false
+      upload-output-artifact:
+        description: 'Optional: If true, upload the terraform output artifact from the current workflow run, otherwise it skips it.'
+        type: boolean
+        required: false
+        default: true
 
 permissions:
   id-token: write
@@ -274,9 +279,10 @@ jobs:
       working-directory: ${{ inputs.working-directory }}
 
     - name: Upload Terraform JSON outputs artifact
+      if: inputs.upload-output-artifact
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
-        name: terraform-output-${{ github.run_id }}
+        name: terraform-output-${{ inputs.environment }}-${{ inputs.region }}-${{ inputs.working-directory }}-${{ github.run_id }}
         path: ${{ inputs.working-directory }}/tf-output.json
         retention-days: 1
     
