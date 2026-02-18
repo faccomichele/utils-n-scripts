@@ -104,7 +104,7 @@ jobs:
       run: |
         echo "repo-name=$(echo ${{ github.repository }} | cut -d "/" -f2)" | tee -a $GITHUB_OUTPUT
         echo "repo-url=$(echo ${{ github.repositoryUrl }} | sed 's/git:/https:/g' | sed 's/.git$//g')" | tee -a $GITHUB_OUTPUT
-        echo "roleprefix=github-role-for-$(echo "${{ github.repository }}" | cut -d "/" -f2 | cut -c1-17)-GitHubActionsRole" | tee -a $GITHUB_OUTPUT
+        echo "roleprefix=gha-role-for-$(echo "${{ github.repository }}" | cut -d "/" -f2 | cut -c1-17)-${ENVNAME}-GHARole" | tee -a $GITHUB_OUTPUT
 
     - name: Define AWS environment variables
       id: aws_env_ids
