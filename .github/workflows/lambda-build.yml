@@ -209,9 +209,7 @@ jobs:
         # Install dependencies if package.json exists
         if [ -f "package.json" ]; then
           # Use 'npm ci' when a lockfile is present for a deterministic, reproducible install.
-          # Omit dev and optional dependencies to reduce layer size:
-          #   --omit=dev     skips devDependencies (not needed at runtime)
-          #   --omit=optional skips optionalDependencies (platform-specific extras, safe to exclude)
+          npm install --package-lock-only
           if [ -f "package-lock.json" ] || [ -f "npm-shrinkwrap.json" ]; then
             echo "Lockfile found – using 'npm ci' for deterministic install (omitting dev and optional deps)..."
             npm ci --omit=dev --omit=optional
