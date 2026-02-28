@@ -24,6 +24,16 @@ on:
         type: boolean
         required: false
         default: false
+      s3-bucket:
+        description: 'Optional: S3 bucket name for lambda artifacts. If not provided, falls back to GitHub artifacts when download-lambda-artifacts is true.'
+        type: string
+        required: false
+        default: ''
+      s3-prefix:
+        description: 'S3 key prefix where lambda zip files are stored'
+        type: string
+        required: false
+        default: 'lambda-zips'
       upload-output-artifact:
         description: 'Optional: If true, upload the terraform output artifact from the current workflow run, otherwise it skips it.'
         type: boolean
@@ -63,7 +73,7 @@ jobs:
       working-directory: ${{ inputs.working-directory }}
 
     - name: Download lambda artifacts if requested
-      if: inputs.download-lambda-artifacts
+      if: inputs.download-lambda-artifacts && inputs.s3-bucket == ''
       uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
       with:
         pattern: lambda-*-${{ github.run_id }}
@@ -90,6 +100,15 @@ jobs:
         role-to-assume: ${{ steps.aws_role.outputs.arn }}
         aws-region: ${{ inputs.region == 'global' && 'eu-central-1' || inputs.region  }}
         role-duration-seconds: '3600'
+
+    - name: Download lambda artifacts from S3 if requested
+      if: inputs.download-lambda-artifacts && inputs.s3-bucket != ''
+      shell: bash
+      run: |
+        mkdir -p "${{ inputs.working-directory }}/lambda"
+        aws s3 sync "s3://${{ inputs.s3-bucket }}/${{ inputs.s3-prefix }}/${{ github.run_id }}/" \
+          "${{ inputs.working-directory }}/lambda/" --no-progress
+        echo "Lambda packages downloaded from s3://${{ inputs.s3-bucket }}/${{ inputs.s3-prefix }}/${{ github.run_id }}/"
 
     - name: Retrieve central account and role secret from SSM
       id: get_core_params

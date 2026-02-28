@@ -7,9 +7,34 @@ on:
         description: 'The location containing the lambda subfolders to build'
         type: string
         default: '.'
+      environment:
+        description: 'The target environment (dev, stg, prod), required when s3-bucket is provided'
+        type: string
+        required: false
+        default: 'dev'
+      region:
+        description: 'AWS region for the S3 bucket'
+        type: string
+        required: false
+        default: 'eu-central-1'
+      s3-bucket:
+        description: 'Optional: S3 bucket name for storing lambda zip files. If provided, uploads to S3 instead of GitHub artifacts.'
+        type: string
+        required: false
+        default: ''
+      s3-prefix:
+        description: 'S3 key prefix for storing lambda zip files'
+        type: string
+        required: false
+        default: 'lambda-zips'
 
 permissions:
+  id-token: write
   contents: read
+
+env:
+  ENVNAME: ${{ inputs.environment }}
+  REGION: ${{ inputs.region }}
 
 jobs:
   detect_lambdas:
@@ -287,7 +312,55 @@ jobs:
           echo "No handler file present, skipping function package creation (layer-only build)"
         fi
 
+    - name: Define the name of the variables to be retrieved based on the target environment
+      id: aws_env_ids
+      if: inputs.s3-bucket != ''
+      shell: bash
+      run: |
+        if [[ -z "${ENVNAME}" ]]; then
+          echo "Error: 'environment' input is required when 's3-bucket' is provided"
+          exit 1
+        fi
+        echo "role=${ENVNAME^^}_ROLE_SECRET" | tee -a $GITHUB_OUTPUT
+        echo "account=${ENVNAME^^}_AWS_ID" | tee -a $GITHUB_OUTPUT
+
+    - name: Set repository details
+      id: repo_details
+      if: inputs.s3-bucket != ''
+      shell: bash
+      run: echo "roleprefix=gha-role-for-$(echo "${{ github.repository }}" | cut -d "/" -f2 | cut -c1-17)-${ENVNAME}-GHARole" | tee -a $GITHUB_OUTPUT
+
+    - name: Retrieve the AWS IAM Role to be used
+      id: aws_role
+      if: inputs.s3-bucket != ''
+      shell: bash
+      run: |
+        ACCOUNT="${{ secrets[ steps.aws_env_ids.outputs.account ] }}"
+        ROLE_SECRET="${{ secrets[ steps.aws_env_ids.outputs.role ] }}"
+        if [[ -z "$ACCOUNT" || -z "$ROLE_SECRET" ]]; then
+          echo "Error: AWS account ID or role secret is empty. Ensure the secrets '${{ steps.aws_env_ids.outputs.account }}' and '${{ steps.aws_env_ids.outputs.role }}' are set."
+          exit 1
+        fi
+        echo "arn=arn:aws:iam::${ACCOUNT}:role/${{ steps.repo_details.outputs.roleprefix }}-${ROLE_SECRET}" | tee -a $GITHUB_OUTPUT
+
+    - name: AWS CLI Login
+      if: inputs.s3-bucket != ''
+      uses: aws-actions/configure-aws-credentials@d4695650384537945e0b565ee73a714d361bcb04  # v5.5.1
+      with:
+        role-to-assume: ${{ steps.aws_role.outputs.arn }}
+        aws-region: ${{ inputs.region }}
+        role-duration-seconds: '3600'
+
+    - name: Upload Lambda packages to S3
+      if: inputs.s3-bucket != ''
+      shell: bash
+      run: |
+        aws s3 cp "${{ inputs.working-directory }}/" "s3://${{ inputs.s3-bucket }}/${{ inputs.s3-prefix }}/${{ github.run_id }}/" \
+          --recursive --exclude "*" --include "*.zip" --no-progress
+        echo "Lambda packages uploaded to s3://${{ inputs.s3-bucket }}/${{ inputs.s3-prefix }}/${{ github.run_id }}/"
+
     - name: Upload Lambda packages as artifacts
+      if: inputs.s3-bucket == ''
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: lambda-${{ matrix.lambda.path || 'root' }}-${{ matrix.lambda.folder }}-${{ github.run_id }}
