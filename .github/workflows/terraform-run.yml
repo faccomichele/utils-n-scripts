@@ -19,11 +19,6 @@ on:
         description: 'The location containing the terraform related files'
         type: string
         default: '.'
-      download-lambda-artifacts:
-        description: 'Optional: If true, downloads all lambda artifacts from the current workflow run. If false, runs setup.sh (backward compatible)'
-        type: boolean
-        required: false
-        default: false
       upload-output-artifact:
         description: 'Optional: If true, upload the terraform output artifact from the current workflow run, otherwise it skips it.'
         type: boolean
@@ -36,22 +31,45 @@ permissions:
   contents: read
 
 env:
-  ENVNAME: ${{ inputs.environment }}
-  REGION: ${{ inputs.region }}
-  S3REGION: ${{ vars.TF_STATE_SSM_REGION || 'eu-central-1' }}
+  ENV_NAME: ${{ inputs.environment }}
+  AWS_REGION: ${{ inputs.region }}
+  TF_STATE_SSM_REGION: ${{ vars.TF_STATE_SSM_REGION || 'eu-central-1' }}
 
 jobs:
+  repo_details:
+    name: Get repository details
+    runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
+    outputs:
+      repo-name: ${{ steps.repo_details.outputs.repo-name }}
+      repo-url: ${{ steps.repo_details.outputs.repo-url }}
+    steps:
+    - name: Set branch names
+      id: repo_details
+      uses: ./.github/actions/get-repo-details
+
   terraform_plan_apply:
     name: Run Terraform (${{ inputs.environment }}_${{ inputs.region }}) - (${{ inputs.working-directory }})
     runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
     if: ${{ inputs.working-directory != '[]' }}
+    needs: repo_details
+    env:
+      REPO_NAME: ${{ needs.repo_details.outputs.repo-name }}
+      REPO_URL: ${{ needs.repo_details.outputs.repo-url }}
     steps:
     - name: Set branch names
       id: repo_details
-      shell: bash
-      run: |
-        echo "repo-name=$(echo ${{ github.repository }} | cut -d "/" -f2)" | tee -a $GITHUB_OUTPUT
-        echo "repo-url=$(echo ${{ github.repositoryUrl }} | sed 's/git:/https:/g' | sed 's/.git$//g')" | tee -a $GITHUB_OUTPUT
+      uses: ./.github/actions/get-repo-details
+    
+    - name: Custom AWS Login
+      id: aws_login
+      uses: ./.github/actions/custom-aws-login
+      with:
+        dev_account: ${{ secrets.DEV_AWS_ID }}
+        stg_account: ${{ secrets.STG_AWS_ID }}
+        prod_account: ${{ secrets.PROD_AWS_ID }}
+        dev_role_secret: ${{ secrets.DEV_ROLE_SECRET }}
+        stg_role_secret: ${{ secrets.STG_ROLE_SECRET }}
+        prod_role_secret: ${{ secrets.PROD_ROLE_SECRET }}
 
     - name: Get source code locally from this repo
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -62,42 +80,22 @@ jobs:
       run: wget -O tf_out_to_md.py https://raw.githubusercontent.com/faccomichele/utils-n-scripts/refs/heads/main/terraform/tf_out_to_md.py && chmod +x tf_out_to_md.py
       working-directory: ${{ inputs.working-directory }}
 
-    - name: Download lambda artifacts if requested
-      if: inputs.download-lambda-artifacts
-      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-      with:
-        pattern: lambda-*-${{ github.run_id }}
-        path: ${{ inputs.working-directory }}/lambda
-        merge-multiple: true
-
-    - name: Define the name of the variables to be retrieved based on the target environment
-      id: aws_env_ids
+    - name: Download lambda artifacts from S3 if requested
+      if: vars.S3_ARTIFACT_BUCKET != ''
       shell: bash
       run: |
-        echo "role=${ENVNAME^^}_ROLE_SECRET" | tee -a $GITHUB_OUTPUT
-        echo "account=${ENVNAME^^}_AWS_ID" | tee -a $GITHUB_OUTPUT
-        echo "tfvars=${ENVNAME^^}_TF_VARS" | tee -a $GITHUB_OUTPUT
-        echo "roleprefix=gha-role-for-$(echo "${{ steps.repo_details.outputs.repo-name }}" | cut -c1-17)-${ENVNAME}-GHARole" | tee -a $GITHUB_OUTPUT
-      
-    - name: Retrieve the AWS IAM Role to be used
-      id: aws_role
-      shell: bash
-      run: echo "arn=arn:aws:iam::${{ secrets[ steps.aws_env_ids.outputs.account ] }}:role/${{ steps.aws_env_ids.outputs.roleprefix }}-${{ secrets[ steps.aws_env_ids.outputs.role ] }}" | tee -a $GITHUB_OUTPUT
-
-    - name: AWS CLI Login
-      uses: aws-actions/configure-aws-credentials@d4695650384537945e0b565ee73a714d361bcb04  # v5.5.1
-      with:
-        role-to-assume: ${{ steps.aws_role.outputs.arn }}
-        aws-region: ${{ inputs.region == 'global' && 'eu-central-1' || inputs.region  }}
-        role-duration-seconds: '3600'
+        mkdir -p "${{ inputs.working-directory }}/lambda"
+        aws s3 sync "s3://${{ vars.S3_ARTIFACT_BUCKET }}/${REPO_NAME}/${ENV_NAME}/lambdas/" \
+          "${{ inputs.working-directory }}/lambda/" --no-progress
+        echo "Lambda packages downloaded from s3://${{ vars.S3_ARTIFACT_BUCKET }}/${REPO_NAME}/${ENV_NAME}/lambdas/"
 
     - name: Retrieve central account and role secret from SSM
       id: get_core_params
       shell: bash
       run: |
-        echo "Retrieving SSM parameters from region ${S3REGION}..."
-        CORE_ACCOUNT=$(aws ssm get-parameter --name "/manual/global/central-account/account-id" --with-decryption --region "$S3REGION" --query Parameter.Value --output text)
-        CORE_ROLE_SECRET=$(aws ssm get-parameter --name "/manual/${ENVNAME}/terraform/state-file/role-secret" --with-decryption --region "$S3REGION" --query Parameter.Value --output text)
+        echo "Retrieving SSM parameters from region ${TF_STATE_SSM_REGION}..."
+        CORE_ACCOUNT=$(aws ssm get-parameter --name "/manual/global/central-account/account-id" --with-decryption --region "$TF_STATE_SSM_REGION" --query Parameter.Value --output text)
+        CORE_ROLE_SECRET=$(aws ssm get-parameter --name "/manual/${ENV_NAME}/terraform/state-file/role-secret" --with-decryption --region "$TF_STATE_SSM_REGION" --query Parameter.Value --output text)
         # Mask values in GitHub Actions logs
         echo "::add-mask::$CORE_ACCOUNT"
         echo "::add-mask::$CORE_ROLE_SECRET"
@@ -110,11 +108,11 @@ jobs:
         cat > s3backend.tf << EOF
         terraform {
           backend "s3" {
-            bucket        = "terraform-core-aws-state-files-${ENVNAME}-${{ steps.get_core_params.outputs.core_account }}"
-            key           = "${{ steps.repo_details.outputs.repo-name }}/terraform.tfstate"
-            region        = "${S3REGION}"
+            bucket        = "terraform-core-aws-state-files-${ENV_NAME}-${{ steps.get_core_params.outputs.core_account }}"
+            key           = "${REPO_NAME}/terraform.tfstate"
+            region        = "${TF_STATE_SSM_REGION}"
             assume_role   = {
-              role_arn    = "arn:aws:iam::${{ steps.get_core_params.outputs.core_account }}:role/terraform-core-backend-setup-${ENVNAME}-TfStateRole-${{ steps.get_core_params.outputs.core_role_secret }}"
+              role_arn    = "arn:aws:iam::${{ steps.get_core_params.outputs.core_account }}:role/terraform-core-backend-setup-${ENV_NAME}-TfStateRole-${{ steps.get_core_params.outputs.core_role_secret }}"
             }
             encrypt       = true
             use_lockfile  = true
@@ -132,11 +130,11 @@ jobs:
         read AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN <<< "$CREDS"
         export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
         aws sts get-caller-identity
-        BUCKET="s3://terraform-core-aws-state-files-${ENVNAME}-${{ steps.get_core_params.outputs.core_account }}"
+        BUCKET="s3://terraform-core-aws-state-files-${ENV_NAME}-${{ steps.get_core_params.outputs.core_account }}"
         aws s3 ls "$BUCKET" || exit 1
 
         # Create, get and delete a small non-empty object to validate S3 operations with assumed role
-        OBJ_KEY="${{ steps.repo_details.outputs.repo-name }}/tmp-test-${ENVNAME}-${RANDOM}.txt"
+        OBJ_KEY="${REPO_NAME}/tmp-test-${ENV_NAME}-${RANDOM}.txt"
         printf '%s\n' "temporary test object" > /tmp/tmp-test-object.txt
         aws s3 cp /tmp/tmp-test-object.txt "$BUCKET/$OBJ_KEY" || { echo "upload failed"; exit 1; }
         aws s3 cp "$BUCKET/$OBJ_KEY" /tmp/downloaded-test-object.txt || { echo "download failed"; exit 1; }
@@ -161,40 +159,40 @@ jobs:
     - name: Set Terraform Workspace Name
       shell: bash
       run: |
-        if [[ "${REGION}" == "global" ]]; then
-          echo "name=${ENVNAME}" | tee -a $GITHUB_OUTPUT
-          echo "varfile=${ENVNAME^^}_TF_VARS" | tee -a $GITHUB_OUTPUT
+        if [[ "${AWS_REGION}" == "global" ]]; then
+          echo "name=${ENV_NAME}" | tee -a $GITHUB_OUTPUT
+          echo "varfile=${ENV_NAME^^}_TF_VARS" | tee -a $GITHUB_OUTPUT
         else
-          echo "name=${ENVNAME}_${REGION}" | tee -a $GITHUB_OUTPUT
-          REGION_UNDERSCORE=${REGION//-/_}
-          echo "varfile=${ENVNAME^^}_${REGION_UNDERSCORE^^}_TF_VARS" | tee -a $GITHUB_OUTPUT
+          echo "name=${ENV_NAME}_${AWS_REGION}" | tee -a $GITHUB_OUTPUT
+          REGION_UNDERSCORE=${AWS_REGION//-/_}
+          echo "varfile=${ENV_NAME^^}_${REGION_UNDERSCORE^^}_TF_VARS" | tee -a $GITHUB_OUTPUT
         fi
       id: workspace
 
     - name: Create optional .tfvars for current environment
       shell: bash
       run: |
-        # Read the secret into a variable while preserving newlines using a heredoc
-        TFVARS_SECRET=$(cat <<'TFVARS_SECRET_EOF'
-        ${{ vars[ steps.aws_env_ids.outputs.tfvars ] }}
-        TFVARS_SECRET_EOF
+        # Set the definition into a variable while preserving newlines using a heredoc
+        TFVARS_DEFINITION=$(cat <<'TFVARS_EOF'
+        ${{ vars[ steps.aws_login.outputs.tfvars ] }}
+        TFVARS_EOF
         )
-        if [[ -z "$TFVARS_SECRET" ]]; then
-          TFVARS_SECRET=$(cat <<'TFVARS_SECRET_EOF'
+        if [[ -z "$TFVARS_DEFINITION" ]]; then
+          TFVARS_DEFINITION=$(cat <<'TFVARS_EOF'
         ${{ vars[ steps.workspace.outputs.varfile ] }}
-        TFVARS_SECRET_EOF
+        TFVARS_EOF
         )
         fi
 
         mkdir -p config
 
-        if [[ -n "$TFVARS_SECRET" ]]; then
+        if [[ -n "$TFVARS_DEFINITION" ]]; then
           cat > "config/${{ steps.workspace.outputs.name }}.tfvars" <<EOF
-        $TFVARS_SECRET
+        $TFVARS_DEFINITION
         EOF
           echo "Created config/${{ steps.workspace.outputs.name }}.tfvars from repo vars"
         else
-          echo "No TFVARS found for ${ENVNAME}, skipping."
+          echo "No TFVARS found for ${ENV_NAME}, skipping."
         fi
       working-directory: ${{ inputs.working-directory }}
 
@@ -207,13 +205,13 @@ jobs:
       shell: bash
       run: |
         TAGS=$(echo """{
-          \"Project\": \"${{ steps.repo_details.outputs.repo-name }}\",
-          \"RepositoryURL\": \"${{ steps.repo_details.outputs.repo-url }}\",
-          \"Environment\": \"${{ inputs.environment }}\",
+          \"Project\": \"${REPO_NAME}\",
+          \"RepositoryURL\": \"${REPO_URL}\",
+          \"Environment\": \"${ENV_NAME}\",
           \"Automation\": \"Terraform\",
           \"Organization\": \"${{ github.repository_owner }}\",
           \"ManagedBy\": \"Terraform\",
-          \"Region\": \"${{ inputs.region }}\",
+          \"Region\": \"${AWS_REGION}\",
           \"RepositoryPath\": \"${{ inputs.working-directory }}\",
           \"RepositoryFile\": \"main.tf\"
         }""" | jq -c)

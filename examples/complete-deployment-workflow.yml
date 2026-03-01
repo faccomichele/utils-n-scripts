@@ -13,6 +13,10 @@ jobs:
     uses: faccomichele/utils-n-scripts/.github/workflows/lambda-build.yml@latest
     with:
       working-directory: './terraform'
+      environment: 'dev'
+      region: 'us-west-2'
+      s3-bucket: ${{ vars.LAMBDA_ARTIFACTS_BUCKET }}
+    secrets: inherit
 
   # Step 2: Run Terraform plan on PR, apply on main
   terraform-plan:
@@ -24,6 +28,7 @@ jobs:
       region: 'us-west-2'
       working-directory: './terraform'
       download-lambda-artifacts: true
+      s3-bucket: ${{ vars.LAMBDA_ARTIFACTS_BUCKET }}
     secrets: inherit
 
   # Step 3: Deploy website (only on main after terraform apply)
