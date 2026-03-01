@@ -19,10 +19,21 @@ permissions:
   contents: read
 
 env:
-  ENVNAME: ${{ inputs.environment }}
-  REGION: ${{ inputs.region }}
+  ENV_NAME: ${{ inputs.environment }}
+  AWS_REGION: ${{ inputs.region }}
 
 jobs:
+  repo_details:
+    name: Get repository details
+    runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
+    outputs:
+      repo-name: ${{ steps.repo_details.outputs.repo-name }}
+      repo-url: ${{ steps.repo_details.outputs.repo-url }}
+    steps:
+    - name: Set branch names
+      id: repo_details
+      uses: faccomichele/utils-n-scripts/.github/actions/get-repo-details@main
+
   detect_dockerfiles:
     name: Detect Dockerfiles - (${{ inputs.working-directory }})
     runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
@@ -83,12 +94,15 @@ jobs:
   build_and_push:
     name: Build ${{ matrix.dockerfile.folder }} (${{ inputs.environment }}_${{ inputs.region }})
     runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
-    needs: detect_dockerfiles
+    needs: [detect_dockerfiles, repo_details]
     if: needs.detect_dockerfiles.outputs.has_dockerfiles == 'true'
     strategy:
       fail-fast: false
       matrix:
         dockerfile: ${{ fromJson(needs.detect_dockerfiles.outputs.matrix) }}
+    env:
+      REPO_NAME: ${{ needs.repo_details.outputs.repo-name }}
+      REPO_URL: ${{ needs.repo_details.outputs.repo-url }}
     steps:
     - name: Get source code locally from this repo
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -96,32 +110,15 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
 
-    - name: Set repository details
-      id: repo_details
-      shell: bash
-      run: |
-        echo "repo-name=$(echo ${{ github.repository }} | cut -d "/" -f2)" | tee -a $GITHUB_OUTPUT
-        echo "repo-url=$(echo ${{ github.repositoryUrl }} | sed 's/git:/https:/g' | sed 's/.git$//g')" | tee -a $GITHUB_OUTPUT
-        echo "roleprefix=gha-role-for-$(echo "${{ github.repository }}" | cut -d "/" -f2 | cut -c1-17)-${ENVNAME}-GHARole" | tee -a $GITHUB_OUTPUT
-
-    - name: Define AWS environment variables
-      id: aws_env_ids
-      shell: bash
-      run: |
-        echo "role=${ENVNAME^^}_ROLE_SECRET" | tee -a $GITHUB_OUTPUT
-        echo "account=${ENVNAME^^}_AWS_ID" | tee -a $GITHUB_OUTPUT
-
-    - name: Retrieve the AWS IAM Role to be used
-      id: aws_role
-      shell: bash
-      run: echo "arn=arn:aws:iam::${{ secrets[ steps.aws_env_ids.outputs.account ] }}:role/${{ steps.repo_details.outputs.roleprefix }}-${{ secrets[ steps.aws_env_ids.outputs.role ] }}" | tee -a $GITHUB_OUTPUT
-
-    - name: AWS CLI Login
-      uses: aws-actions/configure-aws-credentials@d4695650384537945e0b565ee73a714d361bcb04  # v5.5.1
+    - name: Custom AWS Login
+      uses: faccomichele/utils-n-scripts/.github/actions/custom-aws-login@main
       with:
-        role-to-assume: ${{ steps.aws_role.outputs.arn }}
-        aws-region: ${{ inputs.region }}
-        role-duration-seconds: '3600'
+        dev_account: ${{ secrets.DEV_AWS_ID }}
+        stg_account: ${{ secrets.STG_AWS_ID }}
+        prod_account: ${{ secrets.PROD_AWS_ID }}
+        dev_role_secret: ${{ secrets.DEV_ROLE_SECRET }}
+        stg_role_secret: ${{ secrets.STG_ROLE_SECRET }}
+        prod_role_secret: ${{ secrets.PROD_ROLE_SECRET }}
 
     - name: Login to Amazon ECR
       id: login_ecr
@@ -135,13 +132,13 @@ jobs:
         if [ -n "${{ vars.ECR_REGISTRY }}" ]; then
           ECR_REGISTRY="${{ vars.ECR_REGISTRY }}"
         else
-          ECR_REGISTRY="${{ secrets[ steps.aws_env_ids.outputs.account ] }}.dkr.ecr.${{ inputs.region }}.amazonaws.com"
+          ECR_REGISTRY="${{ steps.login_ecr.outputs.registry }}"
         fi
 
         echo "registry=$ECR_REGISTRY" | tee -a $GITHUB_OUTPUT
 
         # Use folder name as image name
-        IMAGE_NAME="${{ steps.repo_details.outputs.repo-name }}-${{ matrix.dockerfile.folder }}-${ENVNAME}"
+        IMAGE_NAME="${REPO_NAME}-${{ matrix.dockerfile.folder }}-${ENV_NAME}"
         
         # Construct full image name
         FULL_IMAGE_NAME="${ECR_REGISTRY}/${IMAGE_NAME}"
@@ -162,10 +159,10 @@ jobs:
             --repository-name ${{ steps.ecr_info.outputs.image_name }} \
             --region ${{ inputs.region }} \
             --image-scanning-configuration scanOnPush=true \
-            --tags Key=Project,Value=${{ steps.repo_details.outputs.repo-name }} \
+            --tags Key=Project,Value=${{ env.REPO_NAME }} \
                    Key=Environment,Value=${{ inputs.environment }} \
                    Key=ManagedBy,Value=GitHubActions \
-                   Key=RepositoryURL,Value=${{ steps.repo_details.outputs.repo-url }}
+                   Key=RepositoryURL,Value=${{ env.REPO_URL }}
           echo "Repository created successfully"
         else
           echo "Repository ${{ steps.ecr_info.outputs.image_name }} already exists"

@@ -21,13 +21,27 @@ permissions:
   contents: read
 
 env:
-  ENVNAME: ${{ inputs.environment }}
-  REGION: ${{ inputs.region }}
+  ENV_NAME: ${{ inputs.environment }}
+  AWS_REGION: ${{ inputs.region == 'global' && 'eu-central-1' || inputs.region }}
 
 jobs:
+  repo_details:
+    name: Get repository details
+    runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
+    outputs:
+      repo-name: ${{ steps.repo_details.outputs.repo-name }}
+      repo-url: ${{ steps.repo_details.outputs.repo-url }}
+    steps:
+    - name: Set branch names
+      id: repo_details
+      uses: faccomichele/utils-n-scripts/.github/actions/get-repo-details@main
+
   deploy_website:
     name: Deploy Website (${{ inputs.environment }}_${{ inputs.region }})
     runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
+    needs: [repo_details]
+    env:
+      REPO_NAME: ${{ needs.repo_details.outputs.repo-name }}
     steps:
     - name: Get source code locally from this repo
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -112,31 +126,15 @@ jobs:
         echo "  Website bucket: $WEBSITE_BUCKET"
         echo "  CloudFront distribution ID: $CLOUDFRONT_ID"
 
-    - name: Define the name of the variables to be retrieved based on the target environment
-      id: aws_env_ids
-      shell: bash
-      run: |
-        echo "role=${ENVNAME^^}_ROLE_SECRET" | tee -a $GITHUB_OUTPUT
-        echo "account=${ENVNAME^^}_AWS_ID" | tee -a $GITHUB_OUTPUT
-    
-    - name: Set branch names
-      id: repo_details
-      shell: bash
-      run: |
-        echo "repo-name=$(echo ${{ github.repository }} | cut -d "/" -f2)" | tee -a $GITHUB_OUTPUT
-        echo "roleprefix=gha-role-for-$(echo "${{ github.repository }}" | cut -d "/" -f2 | cut -c1-17)-${ENVNAME}-GHARole" | tee -a $GITHUB_OUTPUT
-        
-    - name: Retrieve the AWS IAM Role to be used
-      id: aws_role
-      shell: bash
-      run: echo "arn=arn:aws:iam::${{ secrets[ steps.aws_env_ids.outputs.account ] }}:role/${{ steps.repo_details.outputs.roleprefix }}-${{ secrets[ steps.aws_env_ids.outputs.role ] }}" | tee -a $GITHUB_OUTPUT
-
-    - name: AWS CLI Login
-      uses: aws-actions/configure-aws-credentials@d4695650384537945e0b565ee73a714d361bcb04  # v5.5.1
+    - name: Custom AWS Login
+      uses: faccomichele/utils-n-scripts/.github/actions/custom-aws-login@main
       with:
-        role-to-assume: ${{ steps.aws_role.outputs.arn }}
-        aws-region: ${{ inputs.region == 'global' && 'eu-central-1' || inputs.region  }}
-        role-duration-seconds: '3600'
+        dev_account: ${{ secrets.DEV_AWS_ID }}
+        stg_account: ${{ secrets.STG_AWS_ID }}
+        prod_account: ${{ secrets.PROD_AWS_ID }}
+        dev_role_secret: ${{ secrets.DEV_ROLE_SECRET }}
+        stg_role_secret: ${{ secrets.STG_ROLE_SECRET }}
+        prod_role_secret: ${{ secrets.PROD_ROLE_SECRET }}
 
     - name: Sync files to S3 and capture changed paths
       id: s3_sync
