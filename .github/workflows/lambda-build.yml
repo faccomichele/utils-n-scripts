@@ -12,31 +12,37 @@ on:
         type: string
         required: false
         default: 'dev'
+      full-rebuild:
+        description: 'Whether to perform a full rebuild of all lambdas (true/false)'
+        type: boolean
+        required: false
+        default: false
       region:
         description: 'AWS region for the S3 bucket'
         type: string
         required: false
         default: 'eu-central-1'
-      s3-bucket:
-        description: 'Optional: S3 bucket name for storing lambda zip files. If provided, uploads to S3 instead of GitHub artifacts.'
-        type: string
-        required: false
-        default: ''
-      s3-prefix:
-        description: 'S3 key prefix for storing lambda zip files'
-        type: string
-        required: false
-        default: 'lambda-zips'
 
 permissions:
   id-token: write
   contents: read
 
 env:
-  ENVNAME: ${{ inputs.environment }}
-  REGION: ${{ inputs.region }}
+  ENV_NAME: ${{ inputs.environment }}
+  AWS_REGION: ${{ inputs.region }}
 
 jobs:
+  repo_details:
+    name: Get repository details
+    runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
+    outputs:
+      repo-name: ${{ steps.repo_details.outputs.repo-name }}
+      repo-url: ${{ steps.repo_details.outputs.repo-url }}
+    steps:
+    - name: Set branch names
+      id: repo_details
+      uses: ./.github/actions/get-repo-details
+
   detect_lambdas:
     name: Detect Lambda Functions - (${{ inputs.working-directory }})
     runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
@@ -46,6 +52,9 @@ jobs:
     steps:
     - name: Get source code locally from this repo
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      with:
+        # Full history is needed to detect changed files when not doing a full rebuild
+        fetch-depth: ${{ inputs.full-rebuild && 1 || 0 }}
 
     - name: Detect Lambda functions and build types
       id: detect
@@ -53,7 +62,8 @@ jobs:
       run: |
         LAMBDAS='[]'
         HAS_LAMBDAS='false'
-        
+        FULL_REBUILD="${{ inputs.full-rebuild }}"
+
         # Check if working directory exists
         if [ ! -d "${{ inputs.working-directory }}" ]; then
           echo "Working directory ${{ inputs.working-directory }} does not exist"
@@ -61,9 +71,68 @@ jobs:
           echo "has_lambdas=$HAS_LAMBDAS" >> $GITHUB_OUTPUT
           exit 0
         fi
-        
+
         cd "${{ inputs.working-directory }}"
-        
+
+        # ---------------------------------------------------------------------------
+        # Partial-build mode: detect which lambda directories were modified via git diff
+        # ---------------------------------------------------------------------------
+        declare -A MODIFIED_DIRS
+        if [ "$FULL_REBUILD" = "false" ]; then
+          echo "Partial build: detecting modified lambda directories..."
+
+          BEFORE="${{ github.event.before }}"
+          SHA="${{ github.sha }}"
+          CHANGED_FILES=""
+
+          # Prefer an explicit before/after range (available on push events)
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            CHANGED_FILES=$(git diff --name-only "$BEFORE" "$SHA" 2>/dev/null || true)
+          fi
+
+          # Fall back to comparing HEAD against its parent
+          if [ -z "$CHANGED_FILES" ]; then
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
+          fi
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "Warning: could not determine changed files; falling back to full rebuild"
+            FULL_REBUILD="true"
+          else
+            echo "Changed files detected:"
+            echo "$CHANGED_FILES"
+
+            # Normalize working-directory prefix for path stripping
+            WORKDIR="${{ inputs.working-directory }}"
+            WORKDIR="${WORKDIR#./}"
+            [ "$WORKDIR" = "." ] && WORKDIR=""
+
+            while IFS= read -r file; do
+              # Skip files outside the working directory
+              if [ -n "$WORKDIR" ]; then
+                [[ "$file" == "$WORKDIR/"* ]] || continue
+                rel="${file#$WORKDIR/}"
+              else
+                rel="$file"
+              fi
+
+              # Register the depth-1 and depth-2 directory components as candidates
+              IFS='/' read -ra parts <<< "$rel"
+              [ "${#parts[@]}" -gt 1 ] && MODIFIED_DIRS["${parts[0]}"]=1
+              [ "${#parts[@]}" -gt 2 ] && MODIFIED_DIRS["${parts[0]}/${parts[1]}"]=1
+            done <<< "$CHANGED_FILES"
+
+            if [ "${#MODIFIED_DIRS[@]}" -eq 0 ]; then
+              echo "No lambda directories changed; nothing to build"
+              echo "matrix=$LAMBDAS" >> $GITHUB_OUTPUT
+              echo "has_lambdas=$HAS_LAMBDAS" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            echo "Modified lambda candidate directories: ${!MODIFIED_DIRS[*]}"
+          fi
+        fi
+
         # Enable nullglob to handle case when no directories exist
         shopt -s nullglob
 
@@ -74,6 +143,12 @@ jobs:
 
           # Skip if not a directory (the glob may produce non-dir entries)
           if [ ! -d "$dir" ]; then
+            continue
+          fi
+
+          # In partial-build mode, skip directories that were not modified
+          if [ "$FULL_REBUILD" = "false" ] && [ -z "${MODIFIED_DIRS[$dir]+_}" ]; then
+            echo "Skipping unmodified directory: $dir"
             continue
           fi
 
@@ -135,13 +210,25 @@ jobs:
   build_lambdas:
     name: Build ${{ matrix.lambda.path }}${{ matrix.lambda.path != '' && '/' || '' }}${{ matrix.lambda.folder }} (${{ matrix.lambda.type }})
     runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
-    needs: detect_lambdas
     if: needs.detect_lambdas.outputs.has_lambdas == 'true'
     strategy:
       fail-fast: false
       matrix:
         lambda: ${{ fromJson(needs.detect_lambdas.outputs.matrix) }}
+    needs: [detect_lambdas, repo_details]
+    env:
+      REPO_NAME: ${{ needs.repo_details.outputs.repo-name }}
     steps:
+    - name: Custom AWS Login
+      uses: ./.github/actions/custom-aws-login
+      with:
+        dev_account: ${{ secrets.DEV_AWS_ID }}
+        stg_account: ${{ secrets.STG_AWS_ID }}
+        prod_account: ${{ secrets.PROD_AWS_ID }}
+        dev_role_secret: ${{ secrets.DEV_ROLE_SECRET }}
+        stg_role_secret: ${{ secrets.STG_ROLE_SECRET }}
+        prod_role_secret: ${{ secrets.PROD_ROLE_SECRET }}
+
     - name: Get source code locally from this repo
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
@@ -312,57 +399,9 @@ jobs:
           echo "No handler file present, skipping function package creation (layer-only build)"
         fi
 
-    - name: Define the name of the variables to be retrieved based on the target environment
-      id: aws_env_ids
-      if: inputs.s3-bucket != ''
-      shell: bash
-      run: |
-        if [[ -z "${ENVNAME}" ]]; then
-          echo "Error: 'environment' input is required when 's3-bucket' is provided"
-          exit 1
-        fi
-        echo "role=${ENVNAME^^}_ROLE_SECRET" | tee -a $GITHUB_OUTPUT
-        echo "account=${ENVNAME^^}_AWS_ID" | tee -a $GITHUB_OUTPUT
-
-    - name: Set repository details
-      id: repo_details
-      if: inputs.s3-bucket != ''
-      shell: bash
-      run: echo "roleprefix=gha-role-for-$(echo "${{ github.repository }}" | cut -d "/" -f2 | cut -c1-17)-${ENVNAME}-GHARole" | tee -a $GITHUB_OUTPUT
-
-    - name: Retrieve the AWS IAM Role to be used
-      id: aws_role
-      if: inputs.s3-bucket != ''
-      shell: bash
-      run: |
-        ACCOUNT="${{ secrets[ steps.aws_env_ids.outputs.account ] }}"
-        ROLE_SECRET="${{ secrets[ steps.aws_env_ids.outputs.role ] }}"
-        if [[ -z "$ACCOUNT" || -z "$ROLE_SECRET" ]]; then
-          echo "Error: AWS account ID or role secret is empty. Ensure the secrets '${{ steps.aws_env_ids.outputs.account }}' and '${{ steps.aws_env_ids.outputs.role }}' are set."
-          exit 1
-        fi
-        echo "arn=arn:aws:iam::${ACCOUNT}:role/${{ steps.repo_details.outputs.roleprefix }}-${ROLE_SECRET}" | tee -a $GITHUB_OUTPUT
-
-    - name: AWS CLI Login
-      if: inputs.s3-bucket != ''
-      uses: aws-actions/configure-aws-credentials@d4695650384537945e0b565ee73a714d361bcb04  # v5.5.1
-      with:
-        role-to-assume: ${{ steps.aws_role.outputs.arn }}
-        aws-region: ${{ inputs.region }}
-        role-duration-seconds: '3600'
-
     - name: Upload Lambda packages to S3
-      if: inputs.s3-bucket != ''
       shell: bash
       run: |
-        aws s3 cp "${{ inputs.working-directory }}/" "s3://${{ inputs.s3-bucket }}/${{ inputs.s3-prefix }}/${{ github.run_id }}/" \
+        aws s3 cp "${{ inputs.working-directory }}/" "s3://${{ vars.S3_ARTIFACT_BUCKET }}/${REPO_NAME}/${ENV_NAME}/lambdas/" \
           --recursive --exclude "*" --include "*.zip" --no-progress
-        echo "Lambda packages uploaded to s3://${{ inputs.s3-bucket }}/${{ inputs.s3-prefix }}/${{ github.run_id }}/"
-
-    - name: Upload Lambda packages as artifacts
-      if: inputs.s3-bucket == ''
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-      with:
-        name: lambda-${{ matrix.lambda.path || 'root' }}-${{ matrix.lambda.folder }}-${{ github.run_id }}
-        path: ${{ inputs.working-directory }}/**/*.zip
-        retention-days: 1
+        echo "Lambda packages uploaded to s3://${{ vars.S3_ARTIFACT_BUCKET }}/${REPO_NAME}/${ENV_NAME}/lambdas/"
