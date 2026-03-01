@@ -41,7 +41,7 @@ jobs:
     steps:
     - name: Set branch names
       id: repo_details
-      uses: ./.github/actions/get-repo-details
+      uses: faccomichele/utils-n-scripts/.github/actions/get-repo-details@main
 
   detect_lambdas:
     name: Detect Lambda Functions - (${{ inputs.working-directory }})
@@ -221,7 +221,7 @@ jobs:
     steps:
     - name: Custom AWS Login
       id: aws_login
-      uses: ./.github/actions/custom-aws-login
+      uses: faccomichele/utils-n-scripts/.github/actions/custom-aws-login@main
       with:
         dev_account: ${{ secrets.DEV_AWS_ID }}
         stg_account: ${{ secrets.STG_AWS_ID }}

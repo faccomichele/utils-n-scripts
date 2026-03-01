@@ -45,7 +45,7 @@ jobs:
     steps:
     - name: Set branch names
       id: repo_details
-      uses: ./.github/actions/get-repo-details
+      uses: faccomichele/utils-n-scripts/.github/actions/get-repo-details@main
 
   terraform_plan_apply:
     name: Run Terraform (${{ inputs.environment }}_${{ inputs.region }}) - (${{ inputs.working-directory }})
@@ -56,13 +56,9 @@ jobs:
       REPO_NAME: ${{ needs.repo_details.outputs.repo-name }}
       REPO_URL: ${{ needs.repo_details.outputs.repo-url }}
     steps:
-    - name: Set branch names
-      id: repo_details
-      uses: ./.github/actions/get-repo-details
-    
     - name: Custom AWS Login
       id: aws_login
-      uses: ./.github/actions/custom-aws-login
+      uses: faccomichele/utils-n-scripts/.github/actions/custom-aws-login@main
       with:
         dev_account: ${{ secrets.DEV_AWS_ID }}
         stg_account: ${{ secrets.STG_AWS_ID }}
