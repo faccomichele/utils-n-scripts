@@ -81,13 +81,13 @@ jobs:
       working-directory: ${{ inputs.working-directory }}
 
     - name: Download lambda artifacts from S3 if requested
-      if: vars.S3_ARTIFACT_BUCKET != ''
+      if: vars[steps.aws_login.outputs.artifact_bucket] != ''
       shell: bash
       run: |
         mkdir -p "${{ inputs.working-directory }}/lambda"
-        aws s3 sync "s3://${{ vars.S3_ARTIFACT_BUCKET }}/${REPO_NAME}/${ENV_NAME}/lambdas/" \
+        aws s3 sync "s3://${{ vars[steps.aws_login.outputs.artifact_bucket] }}/${REPO_NAME}/${ENV_NAME}/lambdas/" \
           "${{ inputs.working-directory }}/lambda/" --no-progress
-        echo "Lambda packages downloaded from s3://${{ vars.S3_ARTIFACT_BUCKET }}/${REPO_NAME}/${ENV_NAME}/lambdas/"
+        echo "Lambda packages downloaded from s3://${{ vars[steps.aws_login.outputs.artifact_bucket] }}/${REPO_NAME}/${ENV_NAME}/lambdas/"
 
     - name: Retrieve central account and role secret from SSM
       id: get_core_params

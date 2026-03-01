@@ -220,6 +220,7 @@ jobs:
       REPO_NAME: ${{ needs.repo_details.outputs.repo-name }}
     steps:
     - name: Custom AWS Login
+      id: aws_login
       uses: ./.github/actions/custom-aws-login
       with:
         dev_account: ${{ secrets.DEV_AWS_ID }}
@@ -402,6 +403,6 @@ jobs:
     - name: Upload Lambda packages to S3
       shell: bash
       run: |
-        aws s3 cp "${{ inputs.working-directory }}/" "s3://${{ vars.S3_ARTIFACT_BUCKET }}/${REPO_NAME}/${ENV_NAME}/lambdas/" \
+        aws s3 cp "${{ inputs.working-directory }}/" "s3://${{ vars[steps.aws_login.outputs.artifact_bucket] }}/${REPO_NAME}/${ENV_NAME}/lambdas/" \
           --recursive --exclude "*" --include "*.zip" --no-progress
-        echo "Lambda packages uploaded to s3://${{ vars.S3_ARTIFACT_BUCKET }}/${REPO_NAME}/${ENV_NAME}/lambdas/"
+        echo "Lambda packages uploaded to s3://${{ vars[steps.aws_login.outputs.artifact_bucket] }}/${REPO_NAME}/${ENV_NAME}/lambdas/"
