@@ -85,6 +85,12 @@ jobs:
           local value=$2
           local pattern="__${key}__"
           
+          # Skip if value is a multi-line string (would break sed command)
+          if [[ "$value" == *$'\n'* ]]; then
+            echo "Note: Skipping replacement of $pattern: value is a multi-line string (not compatible with sed)"
+            return
+          fi
+          
           echo "Replacing $pattern with $value"
           
           # Find all files in working directory (excluding .git and hidden files)
