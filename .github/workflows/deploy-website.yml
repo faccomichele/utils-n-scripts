@@ -36,10 +36,71 @@ jobs:
       id: repo_details
       uses: faccomichele/utils-n-scripts/.github/actions/get-repo-details@main
 
+  detect_changes:
+    name: Detect Website Changes - (${{ inputs.working-directory }})
+    runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
+    outputs:
+      has_changes: ${{ steps.detect.outputs.has_changes }}
+    steps:
+    - name: Get source code locally from this repo
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      with:
+        # Full history is needed to detect changed files
+        fetch-depth: 0
+
+    - name: Detect changes in website folder
+      id: detect
+      shell: bash
+      run: |
+        HAS_CHANGES='false'
+
+        BEFORE="${{ github.event.before }}"
+        SHA="${{ github.sha }}"
+        CHANGED_FILES=""
+
+        # Prefer an explicit before/after range (available on push events)
+        if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+          CHANGED_FILES=$(git diff --name-only "$BEFORE" "$SHA" 2>/dev/null || true)
+        fi
+
+        # Fall back to comparing HEAD against its parent
+        if [ -z "$CHANGED_FILES" ]; then
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
+        fi
+
+        if [ -z "$CHANGED_FILES" ]; then
+          echo "Warning: could not determine changed files; assuming changes exist"
+          HAS_CHANGES='true'
+        else
+          echo "Changed files detected:"
+          echo "$CHANGED_FILES"
+
+          # Normalize working-directory prefix for path matching
+          WORKDIR="${{ inputs.working-directory }}"
+          WORKDIR="${WORKDIR#./}"
+          [ "$WORKDIR" = "." ] && WORKDIR=""
+
+          while IFS= read -r file; do
+            if [ -n "$WORKDIR" ]; then
+              if [[ "$file" == "$WORKDIR/"* ]] || [[ "$file" == "$WORKDIR" ]]; then
+                HAS_CHANGES='true'
+                break
+              fi
+            else
+              HAS_CHANGES='true'
+              break
+            fi
+          done <<< "$CHANGED_FILES"
+        fi
+
+        echo "has_changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
+        echo "Website folder has changes: $HAS_CHANGES"
+
   deploy_website:
     name: Deploy Website (${{ inputs.environment }}_${{ inputs.region }})
     runs-on: ${{ vars.RUNNERS || 'ubuntu-latest' }}
-    needs: [repo_details]
+    needs: [repo_details, detect_changes]
+    if: needs.detect_changes.outputs.has_changes == 'true'
     env:
       REPO_NAME: ${{ needs.repo_details.outputs.repo-name }}
     steps:
