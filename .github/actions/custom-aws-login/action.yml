@@ -52,7 +52,7 @@ runs:
         esac
         echo "tfvars=${ENV_NAME^^}_TF_VARS" | tee -a $GITHUB_OUTPUT
         echo "artifact_bucket=${ENV_NAME^^}_ARTIFACT_BUCKET" | tee -a $GITHUB_OUTPUT
-        ROLE_PREFIX="gha-role-for-$(echo "${REPO_NAME}" | cut -c1-17)-${ENV_NAME}-GHARole"
+        ROLE_PREFIX="gha-role-for-$(echo "${REPO_NAME}" | cut -c1-20)-${ENV_NAME}-GHARole"
         echo "arn=arn:aws:iam::${ACCOUNT}:role/${ROLE_PREFIX}-${ROLE_SECRET}" | tee -a $GITHUB_OUTPUT
 
     - name: AWS CLI Login
