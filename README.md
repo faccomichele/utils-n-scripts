@@ -176,6 +176,7 @@ jobs:
 |-----------|------|----------|---------|-------------|
 | `action` | string | No | `'plan'` | The Terraform action to perform: `'plan'`, `'apply'`, or `'destroy'` |
 | `environment` | string | No | `'dev'` | Target environment/workspace (e.g., dev, stg, prod) |
+| `validation_environment` | string | No | `''` | Optional validation suffix (e.g., `'val1'`). When set, appends `-<value>` to Terraform workspace and `Project` tag |
 | `region` | string | No | `'global'` | AWS region in AWS format (e.g., `'us-west-2'`) or `'global'` |
 | `working-directory` | string | No | `'.'` | Directory containing Terraform files |
 | `download-lambda-artifacts` | boolean | No | `false` | If true, downloads all Lambda artifacts from current run. If false, runs `setup.sh` (backward compatible) |

@@ -11,6 +11,10 @@ on:
         description: 'The region available for the environment in AWS format embedded as a string, if applicable, i.e.: \"us-west-2\"'
         type: string
         default: 'global'
+      validation_environment:
+        description: 'Optional validation environment suffix (e.g., val1). When set, it is appended to Terraform workspace and Project tag.'
+        type: string
+        default: ''
       action:
         description: 'The Terraform action to perform: "plan" (review changes only), "apply" (apply changes), or "destroy" (destroy resources)'
         type: string
@@ -33,6 +37,7 @@ permissions:
 env:
   ENV_NAME: ${{ inputs.environment }}
   AWS_REGION: ${{ inputs.region }}
+  VALIDATION_ENVIRONMENT: ${{ inputs.validation_environment }}
   TF_STATE_SSM_REGION: ${{ vars.TF_STATE_SSM_REGION || 'eu-central-1' }}
 
 jobs:
@@ -155,11 +160,19 @@ jobs:
     - name: Set Terraform Workspace Name
       shell: bash
       run: |
+        VALIDATION_ENV_RAW="${VALIDATION_ENVIRONMENT:-}"
+        VALIDATION_ENV_TRIMMED="$(echo "$VALIDATION_ENV_RAW" | xargs)"
+        VALIDATION_ENV_SANITIZED="$(echo "$VALIDATION_ENV_TRIMMED" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/[-_]+$//; s/^[-_]+//; s/-+/-/g')"
+        VALIDATION_SUFFIX=""
+        if [[ -n "$VALIDATION_ENV_SANITIZED" ]]; then
+          VALIDATION_SUFFIX="-$VALIDATION_ENV_SANITIZED"
+        fi
+        echo "validation-suffix=$VALIDATION_SUFFIX" | tee -a $GITHUB_OUTPUT
         if [[ "${AWS_REGION}" == "global" ]]; then
-          echo "name=${ENV_NAME}" | tee -a $GITHUB_OUTPUT
+          echo "name=${ENV_NAME}${VALIDATION_SUFFIX}" | tee -a $GITHUB_OUTPUT
           echo "varfile=${ENV_NAME^^}_TF_VARS" | tee -a $GITHUB_OUTPUT
         else
-          echo "name=${ENV_NAME}_${AWS_REGION}" | tee -a $GITHUB_OUTPUT
+          echo "name=${ENV_NAME}_${AWS_REGION}${VALIDATION_SUFFIX}" | tee -a $GITHUB_OUTPUT
           REGION_UNDERSCORE=${AWS_REGION//-/_}
           echo "varfile=${ENV_NAME^^}_${REGION_UNDERSCORE^^}_TF_VARS" | tee -a $GITHUB_OUTPUT
         fi
@@ -200,8 +213,9 @@ jobs:
     - name: Set Tags Variable
       shell: bash
       run: |
+        PROJECT_NAME="${REPO_NAME}${{ steps.workspace.outputs.validation-suffix }}"
         TAGS=$(echo """{
-          \"Project\": \"${REPO_NAME}\",
+          \"Project\": \"${PROJECT_NAME}\",
           \"RepositoryURL\": \"${REPO_URL}\",
           \"Environment\": \"${ENV_NAME}\",
           \"Automation\": \"Terraform\",
