@@ -161,7 +161,7 @@ jobs:
       shell: bash
       run: |
         VALIDATION_ENV_RAW="${VALIDATION_ENVIRONMENT:-}"
-        VALIDATION_ENV_TRIMMED="$(echo "$VALIDATION_ENV_RAW" | xargs)"
+        VALIDATION_ENV_TRIMMED="$(echo "$VALIDATION_ENV_RAW" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
         VALIDATION_ENV_SANITIZED="$(echo "$VALIDATION_ENV_TRIMMED" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/[-_]+$//; s/^[-_]+//; s/-+/-/g')"
         VALIDATION_SUFFIX=""
         if [[ -n "$VALIDATION_ENV_SANITIZED" ]]; then
