@@ -168,7 +168,7 @@ jobs:
         VALIDATION_ENV_SANITIZED="$(echo "$VALIDATION_ENV_SANITIZED" | sed -E 's/-+/-/g')"
         VALIDATION_SUFFIX=""
         if [[ -n "$VALIDATION_ENV_SANITIZED" ]]; then
-          VALIDATION_SUFFIX="-$VALIDATION_ENV_SANITIZED"
+          VALIDATION_SUFFIX="_${VALIDATION_ENV_SANITIZED}"
         fi
         echo "validation-suffix=$VALIDATION_SUFFIX" | tee -a $GITHUB_OUTPUT
         if [[ "${AWS_REGION}" == "global" ]]; then
