@@ -161,8 +161,11 @@ jobs:
       shell: bash
       run: |
         VALIDATION_ENV_RAW="${VALIDATION_ENVIRONMENT:-}"
-        VALIDATION_ENV_TRIMMED="$(echo "$VALIDATION_ENV_RAW" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
-        VALIDATION_ENV_SANITIZED="$(echo "$VALIDATION_ENV_TRIMMED" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/[-_]+$//; s/^[-_]+//; s/-+/-/g')"
+        VALIDATION_ENV_TRIMMED="$(sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' <<< "$VALIDATION_ENV_RAW")"
+        VALIDATION_ENV_SANITIZED="$(echo "$VALIDATION_ENV_TRIMMED" | tr '[:upper:]' '[:lower:]')"
+        VALIDATION_ENV_SANITIZED="$(echo "$VALIDATION_ENV_SANITIZED" | sed -E 's/[^a-z0-9_-]+/-/g')"
+        VALIDATION_ENV_SANITIZED="$(echo "$VALIDATION_ENV_SANITIZED" | sed -E 's/[-_]+$//; s/^[-_]+//')"
+        VALIDATION_ENV_SANITIZED="$(echo "$VALIDATION_ENV_SANITIZED" | sed -E 's/-+/-/g')"
         VALIDATION_SUFFIX=""
         if [[ -n "$VALIDATION_ENV_SANITIZED" ]]; then
           VALIDATION_SUFFIX="-$VALIDATION_ENV_SANITIZED"
