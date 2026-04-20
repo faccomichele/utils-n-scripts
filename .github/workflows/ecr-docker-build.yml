@@ -13,6 +13,10 @@ on:
       region:
         description: 'The AWS region for ECR (e.g., "us-west-2")'
         type: string
+      push-to-ecr:
+        description: 'A switch that set when pushing the built image to ECR or not'
+        type: boolean
+        default: true
 
 permissions:
   id-token: write
@@ -111,6 +115,7 @@ jobs:
       uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
 
     - name: Custom AWS Login
+      if: inputs.push-to-ecr
       uses: faccomichele/utils-n-scripts/.github/actions/custom-aws-login@main
       with:
         dev_account: ${{ secrets.DEV_AWS_ID }}
@@ -121,6 +126,7 @@ jobs:
         prod_role_secret: ${{ secrets.PROD_ROLE_SECRET }}
 
     - name: Login to Amazon ECR
+      if: inputs.push-to-ecr
       id: login_ecr
       uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
 
@@ -132,7 +138,7 @@ jobs:
         if [ -n "${{ vars.ECR_REGISTRY }}" ]; then
           ECR_REGISTRY="${{ vars.ECR_REGISTRY }}"
         else
-          ECR_REGISTRY="${{ steps.login_ecr.outputs.registry }}"
+          ECR_REGISTRY="${{ inputs.push-to-ecr && steps.login_ecr.outputs.registry || 'none' }}"
         fi
 
         echo "registry=$ECR_REGISTRY" | tee -a $GITHUB_OUTPUT
@@ -150,6 +156,7 @@ jobs:
         echo "Full Image Name: $FULL_IMAGE_NAME"
 
     - name: Create ECR repository if it doesn't exist
+      if: inputs.push-to-ecr
       shell: bash
       run: |
         # Check if repository exists, create if not
@@ -233,7 +240,7 @@ jobs:
       with:
         context: ${{ inputs.working-directory }}/${{ matrix.dockerfile.folder }}
         file: ${{ inputs.working-directory }}/${{ matrix.dockerfile.folder }}/Dockerfile
-        push: true
+        push: inputs.push-to-ecr
         tags: ${{ steps.tags.outputs.tags }}
         build-args: ${{ steps.build_args.outputs.args }}
         cache-from: type=gha
